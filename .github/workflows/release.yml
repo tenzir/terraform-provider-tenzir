@@ -1,0 +1,47 @@
+# This workflow builds and publishes a release whenever a semver tag is
+# pushed. It relies on GoReleaser (configured in .goreleaser.yml) to produce
+# the archives, checksums, and GPG signature that the Terraform Registry
+# ingests.
+#
+# Required repository secrets:
+#   GPG_PRIVATE_KEY — ASCII-armored, passphrase-less private key used to sign
+#                     the checksums.
+# The matching public key must be uploaded to the Terraform Registry.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  # Needed to create the GitHub release and upload artifacts.
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
