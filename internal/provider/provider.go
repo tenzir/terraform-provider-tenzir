@@ -2,9 +2,13 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/function"
@@ -61,8 +65,9 @@ func (p *TenzirProvider) Schema(ctx context.Context, req provider.SchemaRequest,
 					"(user-identity credentials; required for managing organizations). " +
 					"The provider exchanges it for short-lived, workspace-scoped API keys as needed. " +
 					"Can also be set via the TENZIR_PLATFORM_ID_TOKEN environment variable. " +
-					"When neither this nor `service_token` is set, the provider falls back to the " +
-					"id_token cached by `tenzir-platform login` (see the `stage` attribute). " +
+					"When neither this nor `service_token` is set, the provider falls back to " +
+					"running `tzctl auth token` (if it is on PATH) and then to the id_token cached by " +
+					"`tenzir-platform login` (see the `stage` attribute). " +
 					"Exactly one of `id_token` and `service_token` must be set.",
 				Optional:  true,
 				Sensitive: true,
@@ -130,10 +135,19 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		stage = "prod"
 	}
 
-	// When no explicit credentials are configured, fall back to the id_token
-	// cached by `tenzir-platform login`, so a CLI login is enough to run the
-	// provider locally.
+	// When no explicit credentials are configured, fall back to a locally
+	// available id_token so a CLI login is enough to run the provider locally.
+	// First try the `tzctl auth token` command (a live fetch that can refresh
+	// the token), then the id_token cached by `tenzir-platform login`.
 	cachePath := cliTokenPath(stage)
+	var tzctlErr string
+	if idToken == "" && serviceToken == "" {
+		if tok, err := tzctlToken(ctx, endpoint); err == nil {
+			idToken = tok
+		} else if err != errTzctlNotFound {
+			tzctlErr = err.Error()
+		}
+	}
 	if idToken == "" && serviceToken == "" {
 		if tok, err := os.ReadFile(cachePath); err == nil {
 			idToken = strings.TrimSpace(string(tok))
@@ -147,13 +161,17 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		)
 	}
 	if idToken == "" && serviceToken == "" {
+		detail := "Set either the `id_token` provider attribute (or TENZIR_PLATFORM_ID_TOKEN) for " +
+			"user-identity credentials, or the `service_token` provider attribute (or " +
+			"TENZIR_PLATFORM_SERVICE_TOKEN) for org-scoped credentials. As a fallback the " +
+			"provider runs `tzctl auth token` (if on PATH) and then reads the id_token cached by " +
+			"`tenzir-platform login` at " + cachePath + ", but neither yielded a token."
+		if tzctlErr != "" {
+			detail += "\n\n`tzctl auth token` failed: " + tzctlErr
+		}
 		resp.Diagnostics.AddError(
 			"Missing Tenzir Platform credentials",
-			"Set either the `id_token` provider attribute (or TENZIR_PLATFORM_ID_TOKEN) for "+
-				"user-identity credentials, or the `service_token` provider attribute (or "+
-				"TENZIR_PLATFORM_SERVICE_TOKEN) for org-scoped credentials. As a fallback the "+
-				"provider reads the id_token cached by `tenzir-platform login` at "+cachePath+
-				", but no readable token was found there.",
+			detail,
 		)
 	}
 	if idToken != "" && serviceToken != "" {
@@ -186,6 +204,46 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	// Made available to resources and data sources via req.ProviderData.
 	resp.DataSourceData = c
 	resp.ResourceData = c
+}
+
+// errTzctlNotFound signals that the `tzctl` binary is not on PATH, so the
+// credential fallback should silently continue to the next source.
+var errTzctlNotFound = errors.New("tzctl not found on PATH")
+
+// tzctlToken runs `tzctl auth token` to obtain an id_token, returning
+// errTzctlNotFound when the binary is not on PATH. Any other failure (non-zero
+// exit, timeout) is returned with captured stderr for diagnostics. When
+// endpoint is non-empty it is passed via `--api-endpoint` so tzctl targets the
+// same platform as the provider.
+func tzctlToken(ctx context.Context, endpoint string) (string, error) {
+	path, err := exec.LookPath("tzctl")
+	if err != nil {
+		return "", errTzctlNotFound
+	}
+	// Bound the call so a hung `tzctl` cannot block `terraform plan`.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	args := []string{"auth", "token"}
+	if endpoint != "" {
+		args = append(args, "--api-endpoint", endpoint)
+	}
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg != "" {
+			return "", fmt.Errorf("%w: %s", err, msg)
+		}
+		return "", err
+	}
+	tok := strings.TrimSpace(string(out))
+	if tok == "" {
+		return "", errors.New("`tzctl token` returned an empty token")
+	}
+	return tok, nil
 }
 
 // cliTokenPath returns the location where the `tenzir-platform` CLI caches the
