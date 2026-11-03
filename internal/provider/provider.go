@@ -130,9 +130,14 @@ func setting(value types.String, env string) string {
 }
 
 func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource {
-	return []func() resource.Resource{}
+	return []func() resource.Resource{
+		NewWorkspaceResource,
+	}
 }
 
 func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{}
+	return []func() datasource.DataSource{
+		NewOrganizationDataSource,
+		NewWorkspaceDataSource,
+	}
 }
