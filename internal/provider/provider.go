@@ -146,5 +146,7 @@ func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewWorkspaceDataSource,
 		NewPeopleDataSource,
 		NewRolesDataSource,
+		NewDeploymentTypesDataSource,
+		NewDeploymentImagesDataSource,
 	}
 }
