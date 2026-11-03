@@ -19,6 +19,8 @@ var (
 	opChangeDeploymentType    = op("PUT", "/deployments/{deploymentId}/type")
 	opRotateDeploymentKey     = op("POST", "/deployments/{deploymentId}/rotate-key")
 	opDeleteDeployment        = op("DELETE", "/deployments/{deploymentId}")
+
+	opReadDeploymentConfigurationStatus = op("GET", "/deployments/{deploymentId}/configuration/status")
 )
 
 // Deployment is what the platform records about a deployment.
@@ -51,6 +53,13 @@ type DeploymentDetails struct {
 	Upgrade   *DeploymentUpgrade `json:"upgrade,omitempty"`
 	CreatedAt string             `json:"createdAt"`
 	Tracker   Tracker            `json:"tracker"`
+}
+
+// ConfigurationStatus is the branch a deployment follows and its newest
+// commit, which is absent while the branch has none.
+type ConfigurationStatus struct {
+	Tracker Tracker `json:"tracker"`
+	Latest  *string `json:"latest"`
 }
 
 // DeploymentUpgrade says whether a deployment runs the platform's version:
@@ -221,4 +230,14 @@ func (c *Client) DeleteDeployment(ctx context.Context, id string) error {
 		}
 	}
 	return c.call(ctx, opDeleteDeployment, []string{id}, nil, nil, nil)
+}
+
+// ReadDeploymentConfigurationStatus reads the tip of the branch a deployment
+// follows.
+func (c *Client) ReadDeploymentConfigurationStatus(ctx context.Context, id string) (*ConfigurationStatus, error) {
+	var out ConfigurationStatus
+	if err := c.call(ctx, opReadDeploymentConfigurationStatus, []string{id}, nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
