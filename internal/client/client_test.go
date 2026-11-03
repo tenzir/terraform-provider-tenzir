@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // platform serves discovery at its root and routes /api to api.
@@ -88,5 +89,42 @@ func TestRequestsCarryOneCredentialAndEscapedPaths(t *testing.T) {
 	}
 	if _, err := New(context.Background(), Config{URL: srv.URL, Token: "a", APIKey: "b"}); err == nil {
 		t.Error("accepted both an API key and a token")
+	}
+}
+
+func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
+	saved := deleteRetries
+	deleteRetries = []time.Duration{0, 0}
+	t.Cleanup(func() { deleteRetries = saved })
+	for _, tc := range []struct {
+		name     string
+		failures int
+		want     int
+	}{
+		{"recovers", 2, 0},
+		{"gives up", 5, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls <= tc.failures {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = c.DeleteDeployment(context.Background(), "d")
+			if tc.want == 0 && err != nil || tc.want != 0 && !HasStatus(err, tc.want) {
+				t.Fatalf("got %v after %d calls", err, calls)
+			}
+			if calls > len(deleteRetries)+1 {
+				t.Errorf("sent %d requests", calls)
+			}
+		})
 	}
 }
