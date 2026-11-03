@@ -58,7 +58,10 @@ identity, not a "managed" flag.
 ## Resources
 
 IDs are UUIDs in state. Paths accept an ID or a slug, so a slug change never
-breaks state. Every resource supports `terraform import`.
+breaks state. Every resource supports `terraform import`, and imports resolve
+slugs to IDs. Attributes that name a parent, such as `organization_id`, keep
+what the configuration says, so a slug works there too; an ID survives a slug
+change.
 
 ### Phase 1: workspace and access
 
@@ -68,7 +71,7 @@ breaks state. Every resource supports `terraform import`.
 | `tenzir_role` | `…/roles`, `…/update`, `DELETE` | `policy` is a JSON string with semantic equality, because the server normalizes policies |
 | `tenzir_role_assignment` | `PUT`/`DELETE …/people/:user/roles/:role` | Create and delete only; both are idempotent |
 | `tenzir_api_key` | `POST /users/:user/api-keys`, `revoke`, `set-policy`, `rename` | `key` is only known at create time; delete revokes |
-| `tenzir_secret` | org, workspace and deployment scopes | One resource with `organization`, `workspace` and `deployment` attributes; the most specific one sets the scope. `value` is write-only; drift is detected through `version` |
+| `tenzir_secret` | org, workspace and deployment scopes | One resource with `organization_id`, `workspace_id` and `deployment_id`; the most specific one sets the scope. `value` is write-only (Terraform 1.11+), so `value_version` triggers a rewrite after it changes; a `version` that moved outside Terraform plans a rewrite too |
 | `tenzir_ingest_endpoint` | `…/ingest-endpoints` | `name` forces replacement; `token` is sensitive and readable |
 
 Data sources: `tenzir_organization`, `tenzir_workspace`, `tenzir_people`,
@@ -105,7 +108,7 @@ until deployments accept them.
 
 1. `GET /api/deployments/:id` returns the tracker, hosting kind, size and
    region, so `Read` can detect drift without a list call.
-2. A single-secret `GET` for each scope, instead of filtering the list.
+2. Done: a single-secret `GET` for each scope, instead of filtering the list.
 3. A deployment rename, so `name` needn't force replacement.
 4. Later: a member invitation API, for a `tenzir_organization_member` resource.
 

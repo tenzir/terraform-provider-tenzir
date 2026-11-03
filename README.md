@@ -1,63 +1,75 @@
 # Terraform Provider for the Tenzir Platform
 
-A Terraform provider to manage Tenzir Platform resources, built on the
+Manage workspaces, access, secrets and ingest endpoints of the
+[Tenzir Platform](https://docs.tenzir.com) with Terraform. The provider is
+built on the
 [Terraform Plugin Framework](https://developer.hashicorp.com/terraform/plugin/framework).
 
-## Resources
+## Upgrading from 0.x
 
-- `tenzir_organization` — an organization; the authenticated user becomes
-  its initial admin.
-- `tenzir_workspace` — an org-owned workspace.
-- `tenzir_node` — a node registration inside a workspace.
+Version 1.0 targets the new Tenzir Platform and shares no resources with
+0.x. There is no state migration: remove the old resources from your state,
+then import or recreate them with the new ones. To stay on the old platform,
+pin `version = "~> 0.1"`.
 
-## Authentication
+## Usage
 
-Platform user keys are valid for exactly one workspace, so whichever
-credential is configured, the client exchanges it for an account-level key
-plus one key per workspace it touches, caching keys until shortly before
-expiry.
+```hcl
+terraform {
+  required_providers {
+    tenzir = {
+      source  = "tenzir/tenzir"
+      version = "~> 1.0"
+    }
+  }
+}
 
-### Credential model
+provider "tenzir" {}
 
-The provider supports three credential modes; set exactly one:
+data "tenzir_organization" "acme" {
+  slug = "acme"
+}
 
-- **User-identity credentials** (`id_token` /
-  `TENZIR_PLATFORM_ID_TOKEN`): an OIDC ID token from the platform's login
-  IdP (e.g. from the `tenzir-platform` CLI token cache). Full access,
-  including creating and deleting organizations. This is the only credential
-  that can manage the `tenzir_organization` *resource*, since org-scoped
-  credentials cannot create the organization they are scoped to. Exchanged
-  via `/authenticate` and `/switch-tenant`.
-- **Service tokens** (`service_token` /
-  `TENZIR_PLATFORM_SERVICE_TOKEN`): a long-lived `tzst_...` token minted by
-  an org admin (org settings → Service Tokens). Manages workspaces, nodes,
-  and org settings inside that organization; reference the organization via
-  the `tenzir_organization` *data source*. Exchanged via
-  `/service-token/authenticate`.
-- **Federated workload identity** (`id_token` together with
-  `organization_id` / `TENZIR_PLATFORM_ORGANIZATION_ID`): an OIDC token from
-  an external issuer (e.g. GitHub Actions) that matches one of the
-  organization's federated credential configurations (org settings →
-  Federated Credentials). Same scope as service tokens, but with no stored
-  secret. Exchanged via `/federated/authenticate`.
+resource "tenzir_workspace" "soc" {
+  organization_id = data.tenzir_organization.acme.id
+  slug            = "soc"
+}
+```
 
-Following the pattern of providers like GitHub's (org-scoped tokens for
-day-to-day resources, enterprise/site-admin credentials for container-level
-resources), a possible further tier — a deployment-admin credential for
-self-hosted installations that provisions organizations declaratively — is
-intentionally left open in this design but not implemented.
+The provider reads the platform address from `url` or `TENZIR_PLATFORM_URL`,
+defaulting to `https://platform.tenzir.dev`, and finds the API through
+`/.well-known/tenzir-platform` there. It authenticates with one of:
 
-## Layout
+- `api_key` or `TENZIR_API_KEY`: a user API key (`tnzu_…`). Mint one with
+  `tenzir api-key create` from the platform CLI.
+- `token` or `TENZIR_TOKEN`: an OIDC bearer token the platform accepts.
 
-- `main.go` — provider server entrypoint.
-- `internal/provider/` — provider, resources, and data sources.
-- `internal/client/` — HTTP client for the platform API.
-- `examples/` — example configurations, also used by `tfplugindocs` to
-  generate registry documentation.
+An API key acts as its user, limited further by its own policy. The user
+needs every permission that the managed resources need; each resource's
+documentation lists them.
+
+### Resources
+
+- `tenzir_workspace`
+- `tenzir_role` and `tenzir_role_assignment`
+- `tenzir_api_key`
+- `tenzir_secret`, at the organization, workspace or deployment level
+- `tenzir_ingest_endpoint`
+
+### Data sources
+
+- `tenzir_organization` and `tenzir_workspace`
+- `tenzir_people` and `tenzir_roles`
+- `tenzir_deployment_types` and `tenzir_deployment_images`
+
+See [`docs/`](docs/) for every attribute, and [`examples/`](examples/).
 
 ## Development
 
-Build and run unit tests:
+- `main.go`: the provider server.
+- `internal/provider/`: the provider, resources and data sources.
+- `internal/client/`: a hand-written client for the platform API, one file
+  per API group.
 
 ```sh
 make build test
@@ -65,14 +77,13 @@ make build test
 
 ### Local testing with `dev_overrides`
 
-Terraform normally downloads providers from a registry. To test a local
-build instead, install it into `$GOPATH/bin` and point Terraform at it:
+To run a local build, install it into `$GOPATH/bin`:
 
 ```sh
 make install
 ```
 
-Then add to `~/.terraformrc`:
+Then point Terraform at it in `~/.terraformrc`:
 
 ```hcl
 provider_installation {
@@ -83,22 +94,35 @@ provider_installation {
 }
 ```
 
-With the override active, `terraform plan`/`apply` use the local binary
-directly — no `terraform init` needed (it will even warn if you run it).
+With the override, `terraform plan` and `apply` use the local binary without
+`terraform init`.
 
 ### Acceptance tests
 
-Acceptance tests perform real API calls against a live platform:
+Acceptance tests create, import, update and delete real resources. Run them
+against a local platform from `tenzir/mono`:
 
 ```sh
-export TENZIR_PLATFORM_ENDPOINT=...
-export TENZIR_PLATFORM_API_KEY=...
+cd platform
+nix develop .#platform -c tools/bin/dev up -d --no-tui --session tf-provider
+```
+
+Sign in at `/auth/login` and mint an API key, for example with the platform
+CLI. Then:
+
+```sh
+export TENZIR_PLATFORM_URL=http://localhost:3100
+export TENZIR_API_KEY=tnzu_...
+export TENZIR_TEST_ORGANIZATION=local-dev
 make testacc
 ```
 
+With `TF_ACC` set, `TestContract` also checks every API operation the client
+calls against the platform's `openapi.json`.
+
 ### Documentation
 
-Registry docs are generated from schema descriptions and `examples/`:
+`docs/` is generated from schema descriptions and `examples/`:
 
 ```sh
 make docs
