@@ -108,11 +108,32 @@ and 2, Terraform only points deployments at a branch.
 
 Phase 3 adds `tenzir_configuration_file`: one file on one branch of a
 workspace, keyed by `(workspace, branch, path)`. Create, update and delete
-each write through the draft API (`save` with the current `headSha`, then
-`commit`), and read takes the file at the branch tip. Drafts belong to the
-calling user, so the provider discards its draft on error. A `headSha`
-conflict retries once against the new tip. Package files stay out of scope
-until deployments accept them.
+each write through the draft API: start a draft at the branch tip, `save` one
+change, then `commit`. Read takes the file at the branch tip (`file-tree`,
+then `file` at its commit), and drops the resource when the file or branch is
+gone. The import ID is `<organization>/<workspace>/<branch>:<path>`; Git
+refuses a colon in a branch name, so the first colon ends the branch.
+
+- Drafts belong to the calling user, one per branch, shared with the web UI's
+  editor, and `createDraft` resumes an existing draft as it is. Committing it
+  would publish the user's own edits, so the provider refuses to write while
+  that draft holds changes. An empty draft, which opening the editor starts,
+  is discarded and replaced.
+- A failed write discards the provider's draft. A conflict (`DraftConflict`
+  on commit, or a `conflicting` save) discards it and retries once from a
+  fresh draft at the new tip.
+- Resources writing to one branch in one Terraform run would share the
+  user's draft, so the provider serializes writes per (workspace ID, branch)
+  within its process. Two Terraform runs with the same user's key still race.
+- A write that changes nothing commits nothing. Creating a file that exists
+  with other content fails and points at import; identical content is adopted.
+- `commit` records the commit of the last write. Only a content change plans a
+  new one, so later commits to other files cause no diff.
+- Paths that the platform refuses to save, or that deployments refuse
+  (`package.yaml`, `package.lock`, `src/`, `packages/<file>`, non-`.tql`
+  files under `pipelines/`), fail at plan time. After a write, the provider
+  warns with the `problem` from `GET …/pipelines?branch=`, because the commit
+  itself does not validate the layout.
 
 ## Platform changes this needs (in `tenzir/mono`)
 
@@ -124,6 +145,12 @@ until deployments accept them.
    `PUT …/tracker` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
 6. Later: a member invitation API, for a `tenzir_organization_member` resource.
+7. Open: drafts refuse every principal but a user (`DraftUserRequired`), so a
+   service account cannot write configuration files.
+8. Open: a one-shot commit, such as `POST …/configuration/commit` with
+   `branch`, an expected tip, `changes` and `message`, would let the provider
+   write without the user's draft: no refusal while the UI holds edits, and
+   no race between two Terraform runs of one user.
 
 ## Tests
 

@@ -1,6 +1,7 @@
 # Terraform Provider for the Tenzir Platform
 
-Manage workspaces, access, secrets, ingest endpoints and deployments of the
+Manage workspaces, access, secrets, ingest endpoints, deployments and their
+configuration files of the
 [Tenzir Platform](https://docs.tenzir.com) with Terraform. The provider is
 built on the
 [Terraform Plugin Framework](https://developer.hashicorp.com/terraform/plugin/framework).
@@ -56,6 +57,7 @@ documentation lists them.
 - `tenzir_secret`, at the organization, workspace or deployment level
 - `tenzir_ingest_endpoint`
 - `tenzir_deployment`, `tenzir_hosted_deployment` and `tenzir_deployment_key`
+- `tenzir_configuration_file`, one file of a workspace's configuration branch
 
 ### Data sources
 
