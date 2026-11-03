@@ -85,11 +85,21 @@ organization holds anything.
 
 | Resource | API | Notes |
 |---|---|---|
-| `tenzir_deployment` | `POST …/deployments`, `tracker`, `DELETE` | Self-hosted. `name` forces replacement, because there is no rename. `branch` and `auto_deploy` update through `PUT tracker`. An optional `tenzir_deployment_key` resource rotates and exposes the key |
-| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `type`, `tracker`, `DELETE` | `size` updates in place (restart); `image` and `region` force replacement. Create waits until `reachable`, with a timeout |
+| `tenzir_deployment` | `POST …/deployments`, `update`, `tracker`, `DELETE` | Self-hosted. `name` renames in place; `branch` and `auto_deploy` update through `PUT tracker`. Read takes `GET …/details` |
+| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `update`, `tracker`, `type`, `DELETE` | `size` updates in place (restart); `region` forces replacement. The platform does not report `image`, so the state keeps the configured one; changing it forces replacement, except after an import, where it is null. Create waits until `reachable`, with a `create` timeout |
+| `tenzir_deployment_key` | `POST …/rotate-key` | Mints a key on create and when `triggers` change; `key` is sensitive. Destroy only drops it from the state. A separate resource, because minting locks out whatever runs with the previous key on its next reconnect |
 
 The two kinds stay separate resources: their create calls and mutable fields
-differ.
+differ. Delete retries a 503, which the platform answers while Kafka is
+unavailable.
+
+The `tenzir_deployment` data source reads the live status, such as
+`reachable`, `version` and `last_seen`, which the resources leave out of
+their state so that it does not drift on every refresh.
+
+The dev stack hosts no deployments, so a stand-in platform in the tests drives
+`tenzir_hosted_deployment`; against the dev stack, the test checks that the
+refusal reaches the user.
 
 ### Phase 3: configuration
 
@@ -106,11 +116,14 @@ until deployments accept them.
 
 ## Platform changes this needs (in `tenzir/mono`)
 
-1. `GET /api/deployments/:id` returns the tracker, hosting kind, size and
-   region, so `Read` can detect drift without a list call.
+1. Done: `GET /api/deployments/:id/details` returns the tracker, hosting
+   kind, size and region, so `Read` can detect drift without a list call.
 2. Done: a single-secret `GET` for each scope, instead of filtering the list.
-3. A deployment rename, so `name` needn't force replacement.
-4. Later: a member invitation API, for a `tenzir_organization_member` resource.
+3. Done: `POST /api/deployments/:id/update` renames a deployment.
+4. Open: creating a deployment accepts a branch without commits, which
+   `PUT …/tracker` refuses, so a typo surfaces only on the next change.
+5. Open: the platform does not report a hosted deployment's image.
+6. Later: a member invitation API, for a `tenzir_organization_member` resource.
 
 ## Tests
 
