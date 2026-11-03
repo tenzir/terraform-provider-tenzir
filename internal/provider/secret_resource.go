@@ -61,9 +61,8 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"The platform counts every write in `version`. When it changes outside Terraform, the next " +
 			"apply writes the configured value again. To change the value, change `value` and bump " +
 			"`value_version`.\n\n" +
-			"Needs `Organization.createSecret`, `Workspace.createSecret` or `Deployment.createSecret` for the " +
-			"owner, and the `OrgSecret`, `WorkspaceSecret` or `DeploymentSecret` actions `read`, `update` " +
-			"and `delete` on the secret.",
+			"Needs `createSecret` and `listSecrets` on the owner (`Organization`, `Workspace` or `Deployment`), " +
+			"and `update` and `delete` on the secret (`OrgSecret`, `WorkspaceSecret` or `DeploymentSecret`).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "The secret ID.",
