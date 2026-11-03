@@ -13,6 +13,7 @@ import (
 
 func TestAccSecret(t *testing.T) {
 	name := "tf_acc_" + testAccName("secret")[7:]
+	workspace := testAccName("tf-acc-secrets")
 	config := func(valueVersion int, readers string) string {
 		return testAccOrganization() + fmt.Sprintf(`
 resource "tenzir_workspace" "test" {
@@ -35,7 +36,7 @@ resource "tenzir_secret" "workspace" {
   value           = "w"
   readable_by     = { deployments = [] }
 }
-`, testAccName("tf-acc-secrets"), name, valueVersion, readers)
+`, workspace, name, valueVersion, readers)
 	}
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
