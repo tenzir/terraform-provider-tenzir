@@ -139,6 +139,7 @@ func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource
 		NewIngestEndpointResource,
 		NewDeploymentResource,
 		NewHostedDeploymentResource,
+		NewDeploymentKeyResource,
 	}
 }
 
@@ -150,5 +151,6 @@ func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewRolesDataSource,
 		NewDeploymentTypesDataSource,
 		NewDeploymentImagesDataSource,
+		NewDeploymentDataSource,
 	}
 }
