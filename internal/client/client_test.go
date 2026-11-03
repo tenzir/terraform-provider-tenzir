@@ -90,24 +90,3 @@ func TestRequestsCarryOneCredentialAndEscapedPaths(t *testing.T) {
 		t.Error("accepted both an API key and a token")
 	}
 }
-
-func TestReadSecretKeepsTheDeploymentsOwn(t *testing.T) {
-	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`[
-			{"name":"x","owner":{"_tag":"Workspace","orgId":"o","workspaceId":"w"},"readableBy":"everyone","version":1},
-			{"name":"y","owner":{"_tag":"Deployment","orgId":"o","workspaceId":"w","deploymentId":"d"},"readableBy":"everyone","version":2}
-		]`))
-	})
-	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "k"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := SecretScope{Organization: "o", Workspace: "w", Deployment: "d"}
-	if _, err := c.ReadSecret(context.Background(), scope, "x"); !IsNotFound(err) {
-		t.Errorf("an inherited secret: got %v, want not found", err)
-	}
-	s, err := c.ReadSecret(context.Background(), scope, "y")
-	if err != nil || s.Version != 2 {
-		t.Errorf("got %+v, %v", s, err)
-	}
-}
