@@ -44,7 +44,7 @@ func (p *TenzirProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *TenzirProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manage workspaces, access, secrets, ingest endpoints and deployments in the Tenzir Platform.",
+		MarkdownDescription: "Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.",
 		Attributes: map[string]schema.Attribute{
 			"url": schema.StringAttribute{
 				MarkdownDescription: "The platform address, which serves `/.well-known/tenzir-platform`. " +
@@ -140,6 +140,7 @@ func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource
 		NewDeploymentResource,
 		NewHostedDeploymentResource,
 		NewDeploymentKeyResource,
+		NewConfigurationFileResource,
 	}
 }
 
