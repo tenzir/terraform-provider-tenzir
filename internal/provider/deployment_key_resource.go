@@ -39,8 +39,9 @@ func (r *deploymentKeyResource) Schema(_ context.Context, _ resource.SchemaReque
 		MarkdownDescription: "The key a self-hosted deployment connects with, which it presents as " +
 			"`x-tenzir-deployment-key`. The deployment reads it from the file that its `--key-file` option names, " +
 			"together with `--id` for the deployment ID. " +
-			"Creating this resource mints a new key, which stops the previous one working, so a running " +
-			"deployment disconnects until it gets the new one. Changing `triggers` mints another.\n\n" +
+			"Creating this resource mints a new key, which stops the previous one working: a deployment " +
+			"connected with it stays connected, but cannot reconnect until it has the new one. Changing " +
+			"`triggers` mints another.\n\n" +
 			"The platform shows a key only once, so the state holds it and it cannot be imported. " +
 			"Destroying the resource only removes the key from the state: the deployment keeps " +
 			"connecting with it until a new key is minted or the deployment is deleted. A hosted " +
