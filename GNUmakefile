@@ -15,7 +15,7 @@ test:
 	go test ./... -v
 
 # Acceptance tests: runs real create/read/update/delete calls against the
-# platform configured via TENZIR_PLATFORM_ENDPOINT / TENZIR_PLATFORM_API_KEY.
+# platform configured via TENZIR_PLATFORM_URL and TENZIR_API_KEY.
 testacc:
 	TF_ACC=1 go test ./... -v -timeout 120m
 
