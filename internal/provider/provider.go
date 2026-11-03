@@ -138,6 +138,7 @@ func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource
 		NewSecretResource,
 		NewIngestEndpointResource,
 		NewDeploymentResource,
+		NewHostedDeploymentResource,
 	}
 }
 
