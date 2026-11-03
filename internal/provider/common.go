@@ -55,3 +55,12 @@ func stringPointer(v types.String) *string {
 	s := v.ValueString()
 	return &s
 }
+
+// diagsError folds error diagnostics into one error.
+func diagsError(diags diag.Diagnostics) error {
+	var msgs []string
+	for _, d := range diags.Errors() {
+		msgs = append(msgs, d.Summary()+": "+d.Detail())
+	}
+	return fmt.Errorf("%s", strings.Join(msgs, "; "))
+}

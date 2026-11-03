@@ -135,6 +135,7 @@ func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource
 		NewRoleResource,
 		NewRoleAssignmentResource,
 		NewAPIKeyResource,
+		NewSecretResource,
 	}
 }
 
