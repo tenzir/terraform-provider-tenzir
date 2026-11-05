@@ -117,23 +117,21 @@ and 2, Terraform only points deployments at a branch.
 
 Phase 3 adds `tenzir_configuration_file`: one file on one branch of a
 workspace, keyed by `(workspace, branch, path)`. Create, update and delete
-each write through the draft API: start a draft at the branch tip, `save` one
-change, then `commit`. Read takes the file at the branch tip (`file-tree`,
-then `file` at its commit), and drops the resource when the file or branch is
-gone. The import ID is `<organization>/<workspace>/<branch>:<path>`; Git
+each make one commit with `POST …/configuration/commits`, whose
+`expectedHead` is the tip that the provider read the file at. Read takes the
+file at the branch tip (`file-tree`, then `file` at its commit), and drops
+the resource when the file or branch is gone. The import ID is `<organization>/<workspace>/<branch>:<path>`; Git
 refuses a colon in a branch name, so the first colon ends the branch.
 
-- Drafts belong to the calling user, one per branch, shared with the web UI's
-  editor, and `createDraft` resumes an existing draft as it is. Committing it
-  would publish the user's own edits, so the provider refuses to write while
-  that draft holds changes. An empty draft, which opening the editor starts,
-  is discarded and replaced.
-- A failed write discards the provider's draft. A conflict (`DraftConflict`
-  on commit, or a `conflicting` save) discards it and retries once from a
-  fresh draft at the new tip.
-- Resources writing to one branch in one Terraform run would share the
-  user's draft, so the provider serializes writes per (workspace ID, branch)
-  within its process. Two Terraform runs with the same user's key still race.
+- The provider does not touch drafts, so a user's unpublished edits in the
+  web UI stay as they are.
+- A `HeadMoved` refusal carries the new tip. The provider reads the file
+  there again, adopts content that already matches, and otherwise commits
+  against it, for at most three attempts. Two Terraform runs on one branch
+  race only there.
+- Writes to one branch wait for each other within the provider's process, so
+  that a run with many files on one branch does not spend its attempts on
+  its own commits.
 - A write that changes nothing commits nothing. Creating a file that exists
   with other content fails and points at import; identical content is adopted.
 - `commit` records the commit of the last write. Only a content change plans a
@@ -154,12 +152,11 @@ refuses a colon in a branch name, so the first colon ends the branch.
    `PUT …/tracker` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
 6. Later: a member invitation API, for a `tenzir_organization_member` resource.
-7. Open: drafts refuse every principal but a user (`DraftUserRequired`), so a
-   service account cannot write configuration files.
-8. Open: a one-shot commit, such as `POST …/configuration/commit` with
-   `branch`, an expected tip, `changes` and `message`, would let the provider
-   write without the user's draft: no refusal while the UI holds edits, and
-   no race between two Terraform runs of one user.
+7. Done: `POST …/configuration/commits` commits changes against an expected
+   head, without a draft, under `Workspace.commitChanges`. A commit names a
+   user as its author, so it takes a user or a user's API key; service
+   accounts can write configuration files once they can hold
+   `Workspace.commitChanges` and author commits.
 
 ## Tests
 
