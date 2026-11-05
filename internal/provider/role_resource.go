@@ -20,6 +20,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &roleResource{}
 	_ resource.ResourceWithImportState = &roleResource{}
+	_ resource.ResourceWithModifyPlan  = &roleResource{}
 )
 
 var roleColors = []string{"neutral", "blue", "green", "lightblue", "purple", "pink", "orange", "yellow", "red"}
@@ -68,7 +69,6 @@ func (r *roleResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"label": schema.StringAttribute{
 				MarkdownDescription: "The display name.",
@@ -102,6 +102,10 @@ func (r *roleResource) Configure(_ context.Context, req resource.ConfigureReques
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
+func (r *roleResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, false)
+}
+
 func (m *roleModel) set(role *client.Role) {
 	m.ID = types.StringValue(role.ID)
 	m.Label = types.StringValue(role.Label)
@@ -119,7 +123,11 @@ func (r *roleResource) Create(ctx context.Context, req resource.CreateRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	role, err := r.client.CreateRole(ctx, plan.OrganizationID.ValueString(), client.NewRole{
+	ids, ok := recordParents(ctx, r.client, organizationParent(plan.OrganizationID), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	role, err := r.client.CreateRole(ctx, ids.Organization, client.NewRole{
 		Label:       plan.Label.ValueString(),
 		Color:       plan.Color.ValueString(),
 		Description: stringPointer(plan.Description),
@@ -139,7 +147,12 @@ func (r *roleResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	role, err := r.client.ReadRole(ctx, state.OrganizationID.ValueString(), state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	role, err := r.client.ReadRole(ctx, ids.Organization, state.ID.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -176,7 +189,12 @@ func (r *roleResource) Update(ctx context.Context, req resource.UpdateRequest, r
 	if !plan.Policy.Equal(state.Policy) {
 		patch.Policy = json.RawMessage(plan.Policy.ValueString())
 	}
-	role, err := r.client.UpdateRole(ctx, state.OrganizationID.ValueString(), state.ID.ValueString(), patch)
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	role, err := r.client.UpdateRole(ctx, ids.Organization, state.ID.ValueString(), patch)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot update the role", err.Error())
 		return
@@ -191,7 +209,12 @@ func (r *roleResource) Delete(ctx context.Context, req resource.DeleteRequest, r
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteRole(ctx, state.OrganizationID.ValueString(), state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteRole(ctx, ids.Organization, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the role", err.Error())
 	}

@@ -57,11 +57,20 @@ identity, not a "managed" flag.
 
 ## Resources
 
-IDs are UUIDs in state. Paths accept an ID or a slug, so a slug change never
-breaks state. Every resource supports `terraform import`, and imports resolve
-slugs to IDs. Attributes that name a parent, such as `organization_id`, keep
-what the configuration says, so a slug works there too; an ID survives a slug
-change.
+IDs are UUIDs in state. Paths accept an ID or a slug. Every resource supports
+`terraform import`, and imports resolve slugs to IDs.
+
+Attributes that name a parent, such as `organization_id`, take an ID or a
+slug too. The state keeps the form that created the resource, or the IDs of
+an import, and the private state records the IDs, which reads, updates and
+deletes use, so a slug change outside Terraform breaks nothing. The plan
+compares parents by ID:
+
+- Another form of the same parent plans no change, and writes nothing.
+- Another parent forces replacement.
+- A configured slug that names no parent, or since a rename another one, fails
+  the plan rather than replacing the resource. A parent that the same apply
+  renames or creates therefore needs its ID.
 
 ### Phase 1: workspace and access
 

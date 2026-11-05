@@ -76,12 +76,10 @@ func (r *configurationFileResource) Schema(_ context.Context, _ resource.SchemaR
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
-				PlanModifiers:       replace,
 			},
 			"workspace_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the workspace whose repository holds the file.",
 				Required:            true,
-				PlanModifiers:       replace,
 			},
 			"branch": schema.StringAttribute{
 				MarkdownDescription: "The branch that holds the file. Defaults to `main`, which every new workspace " +
@@ -122,9 +120,11 @@ func (r *configurationFileResource) Configure(_ context.Context, req resource.Co
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-// ModifyPlan plans a new commit only when the content changes.
+// ModifyPlan compares the parents, and plans a new commit only when the
+// content changes.
 func (r *configurationFileResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+	planParents(ctx, r.client, req, resp, true)
+	if resp.Diagnostics.HasError() || req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
 		return
 	}
 	var plan, state configurationFileModel
@@ -136,14 +136,14 @@ func (r *configurationFileResource) ModifyPlan(ctx context.Context, req resource
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("commit"), types.StringUnknown())...)
 }
 
-// target resolves the workspace, so that writes to one branch lock the same
-// key however the configuration names the workspace.
-func (m *configurationFileModel) target(ctx context.Context, c *client.Client) (branchTarget, error) {
-	ws, err := c.ReadWorkspace(ctx, m.OrganizationID.ValueString(), m.WorkspaceID.ValueString())
-	if err != nil {
-		return branchTarget{}, err
-	}
-	return branchTarget{Organization: ws.OrgID, WorkspaceID: ws.ID, Branch: m.Branch.ValueString()}, nil
+func (m *configurationFileModel) parents() parentRefs {
+	return parentRefs{Organization: m.OrganizationID, Workspace: m.WorkspaceID}
+}
+
+// target names the workspace by ID, so that writes to one branch lock the
+// same key however the configuration names the workspace.
+func (m *configurationFileModel) target(ids parentIDs) branchTarget {
+	return branchTarget{Organization: ids.Organization, WorkspaceID: ids.Workspace, Branch: m.Branch.ValueString()}
 }
 
 func (m *configurationFileModel) message(verb string) string {
@@ -158,12 +158,8 @@ func configurationFileID(t branchTarget, p string) string {
 }
 
 // write publishes the planned content and records the commit.
-func (r *configurationFileResource) write(ctx context.Context, plan *configurationFileModel, verb string, diags *diag.Diagnostics) bool {
-	t, err := plan.target(ctx, r.client)
-	if err != nil {
-		diags.AddError("Cannot resolve the workspace", err.Error())
-		return false
-	}
+func (r *configurationFileResource) write(ctx context.Context, plan *configurationFileModel, ids parentIDs, verb string, diags *diag.Diagnostics) bool {
+	t := plan.target(ids)
 	content := plan.Content.ValueString()
 	commit, err := publishFile(ctx, r.client, t, fileWrite{
 		Path:    plan.Path.ValueString(),
@@ -197,7 +193,8 @@ func (r *configurationFileResource) Create(ctx context.Context, req resource.Cre
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if !r.write(ctx, &plan, "create", &resp.Diagnostics) {
+	ids, ok := recordParents(ctx, r.client, plan.parents(), resp.Private, &resp.Diagnostics)
+	if !ok || !r.write(ctx, &plan, ids, "create", &resp.Diagnostics) {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -209,8 +206,13 @@ func (r *configurationFileResource) Read(ctx context.Context, req resource.ReadR
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	tip, content, err := readBranchFile(ctx, r.client, state.OrganizationID.ValueString(),
-		state.WorkspaceID.ValueString(), state.Branch.ValueString(), state.Path.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	tip, content, err := readBranchFile(ctx, r.client, ids.Organization, ids.Workspace,
+		state.Branch.ValueString(), state.Path.ValueString())
 	if client.IsNotFound(err) || (err == nil && content == nil) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -237,7 +239,9 @@ func (r *configurationFileResource) Update(ctx context.Context, req resource.Upd
 		resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 		return
 	}
-	if !r.write(ctx, &plan, "update", &resp.Diagnostics) {
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() || !r.write(ctx, &plan, ids, "update", &resp.Diagnostics) {
 		return
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
@@ -249,15 +253,20 @@ func (r *configurationFileResource) Delete(ctx context.Context, req resource.Del
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	t, err := state.target(ctx, r.client)
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	_, err := r.client.ReadWorkspace(ctx, ids.Organization, ids.Workspace)
 	if client.IsNotFound(err) {
 		return
 	}
 	if err != nil {
-		resp.Diagnostics.AddError("Cannot resolve the workspace", err.Error())
+		resp.Diagnostics.AddError("Cannot read the workspace", err.Error())
 		return
 	}
-	_, err = publishFile(ctx, r.client, t, fileWrite{Path: state.Path.ValueString(), Message: state.message("delete")})
+	_, err = publishFile(ctx, r.client, state.target(ids), fileWrite{Path: state.Path.ValueString(), Message: state.message("delete")})
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot delete "+state.Path.ValueString(), err.Error())
 	}

@@ -72,12 +72,10 @@ func (r *secretResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
-				PlanModifiers:       replace,
 			},
 			"workspace_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the workspace that holds the secret, or that the deployment belongs to.",
 				Optional:            true,
-				PlanModifiers:       replace,
 			},
 			"deployment_id": schema.StringAttribute{
 				MarkdownDescription: "The ID of the deployment that holds the secret. Needs `workspace_id`.",
@@ -132,10 +130,14 @@ func (r *secretResource) ValidateConfig(ctx context.Context, req resource.Valida
 	}
 }
 
-func (m *secretModel) scope() client.SecretScope {
+func (m *secretModel) parents() parentRefs {
+	return parentRefs{Organization: m.OrganizationID, Workspace: m.WorkspaceID}
+}
+
+func (m *secretModel) scope(ids parentIDs) client.SecretScope {
 	return client.SecretScope{
-		Organization: m.OrganizationID.ValueString(),
-		Workspace:    m.WorkspaceID.ValueString(),
+		Organization: ids.Organization,
+		Workspace:    ids.Workspace,
 		Deployment:   m.DeploymentID.ValueString(),
 	}
 }
@@ -182,7 +184,11 @@ func (r *secretResource) Create(ctx context.Context, req resource.CreateRequest,
 		resp.Diagnostics.AddError("Invalid readers", err.Error())
 		return
 	}
-	s, err := r.client.CreateSecret(ctx, plan.scope(), plan.Name.ValueString(), w)
+	ids, ok := recordParents(ctx, r.client, plan.parents(), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	s, err := r.client.CreateSecret(ctx, plan.scope(ids), plan.Name.ValueString(), w)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot create the secret", err.Error())
 		return
@@ -201,7 +207,12 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	s, err := r.client.ReadSecret(ctx, state.scope(), state.Name.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	s, err := r.client.ReadSecret(ctx, state.scope(ids), state.Name.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -220,10 +231,11 @@ func (r *secretResource) Read(ctx context.Context, req resource.ReadRequest, res
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-// ModifyPlan plans a write of the value when its version moved outside
-// Terraform.
+// ModifyPlan compares the parents, and plans a write of the value when its
+// version moved outside Terraform.
 func (r *secretResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
-	if req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+	planParents(ctx, r.client, req, resp, true)
+	if resp.Diagnostics.HasError() || req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
 		return
 	}
 	drift, diags := req.Private.GetKey(ctx, privateValueDrift)
@@ -242,15 +254,20 @@ func (r *secretResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
 	drift, diags := req.Private.GetKey(ctx, privateValueDrift)
 	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 	plan.Value = config.Value
 	w, err := plan.write(ctx, len(drift) > 0 || !plan.ValueVersion.Equal(state.ValueVersion))
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid readers", err.Error())
 		return
 	}
-	s, err := r.client.SetSecret(ctx, plan.scope(), plan.Name.ValueString(), w)
+	s, err := r.client.SetSecret(ctx, plan.scope(ids), plan.Name.ValueString(), w)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot update the secret", err.Error())
 		return
@@ -270,7 +287,12 @@ func (r *secretResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteSecret(ctx, state.scope(), state.Name.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, state.parents())
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteSecret(ctx, state.scope(ids), state.Name.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the secret", err.Error())
 	}

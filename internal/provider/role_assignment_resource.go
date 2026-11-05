@@ -15,6 +15,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &roleAssignmentResource{}
 	_ resource.ResourceWithImportState = &roleAssignmentResource{}
+	_ resource.ResourceWithModifyPlan  = &roleAssignmentResource{}
 )
 
 func NewRoleAssignmentResource() resource.Resource {
@@ -52,7 +53,6 @@ func (r *roleAssignmentResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
-				PlanModifiers:       replace,
 			},
 			"user_id": schema.StringAttribute{
 				MarkdownDescription: "The ID of a member; see the `tenzir_people` data source.",
@@ -72,13 +72,21 @@ func (r *roleAssignmentResource) Configure(_ context.Context, req resource.Confi
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
+func (r *roleAssignmentResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, false)
+}
+
 func (r *roleAssignmentResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan roleAssignmentModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.AssignMemberRole(ctx, plan.OrganizationID.ValueString(), plan.UserID.ValueString(), plan.RoleID.ValueString())
+	ids, ok := recordParents(ctx, r.client, organizationParent(plan.OrganizationID), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	err := r.client.AssignMemberRole(ctx, ids.Organization, plan.UserID.ValueString(), plan.RoleID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot assign the role", err.Error())
 		return
@@ -93,7 +101,12 @@ func (r *roleAssignmentResource) Read(ctx context.Context, req resource.ReadRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	people, err := r.client.ListPeople(ctx, state.OrganizationID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	people, err := r.client.ListPeople(ctx, ids.Organization)
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -126,7 +139,12 @@ func (r *roleAssignmentResource) Delete(ctx context.Context, req resource.Delete
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.RevokeMemberRole(ctx, state.OrganizationID.ValueString(), state.UserID.ValueString(), state.RoleID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.RevokeMemberRole(ctx, ids.Organization, state.UserID.ValueString(), state.RoleID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot revoke the role", err.Error())
 	}

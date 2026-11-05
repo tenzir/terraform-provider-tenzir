@@ -17,6 +17,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &ingestEndpointResource{}
 	_ resource.ResourceWithImportState = &ingestEndpointResource{}
+	_ resource.ResourceWithModifyPlan  = &ingestEndpointResource{}
 )
 
 func NewIngestEndpointResource() resource.Resource {
@@ -57,7 +58,6 @@ func (r *ingestEndpointResource) Schema(_ context.Context, _ resource.SchemaRequ
 			"organization_id": schema.StringAttribute{
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"name": schema.StringAttribute{
 				MarkdownDescription: "The name pipelines refer to the endpoint by: 3 to 21 lowercase letters, " +
@@ -91,6 +91,10 @@ func (r *ingestEndpointResource) Configure(_ context.Context, req resource.Confi
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
+func (r *ingestEndpointResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, false)
+}
+
 func (m *ingestEndpointModel) set(ctx context.Context, ep *client.IngestEndpoint) error {
 	m.ID = types.StringValue(ep.ID)
 	m.Name = types.StringValue(ep.Name)
@@ -115,7 +119,11 @@ func (r *ingestEndpointResource) Create(ctx context.Context, req resource.Create
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	ep, token, err := r.client.CreateIngestEndpoint(ctx, plan.OrganizationID.ValueString(), client.NewIngestEndpoint{
+	ids, ok := recordParents(ctx, r.client, organizationParent(plan.OrganizationID), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	ep, token, err := r.client.CreateIngestEndpoint(ctx, ids.Organization, client.NewIngestEndpoint{
 		Name:        plan.Name.ValueString(),
 		Description: stringPointer(plan.Description),
 		ReadableBy:  &readers,

@@ -20,6 +20,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &deploymentResource{}
 	_ resource.ResourceWithImportState = &deploymentResource{}
+	_ resource.ResourceWithModifyPlan  = &deploymentResource{}
 )
 
 func NewDeploymentResource() resource.Resource {
@@ -53,7 +54,6 @@ func (r *deploymentResource) Metadata(_ context.Context, req resource.MetadataRe
 // deploymentAttributes are the attributes that both deployment resources
 // have.
 func deploymentAttributes() map[string]schema.Attribute {
-	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	return map[string]schema.Attribute{
 		"id": schema.StringAttribute{
 			MarkdownDescription: "The deployment ID.",
@@ -63,12 +63,10 @@ func deploymentAttributes() map[string]schema.Attribute {
 		"organization_id": schema.StringAttribute{
 			MarkdownDescription: "The ID or slug of the organization.",
 			Required:            true,
-			PlanModifiers:       replace,
 		},
 		"workspace_id": schema.StringAttribute{
 			MarkdownDescription: "The ID or slug of the workspace the deployment belongs to.",
 			Required:            true,
-			PlanModifiers:       replace,
 		},
 		"name": schema.StringAttribute{
 			MarkdownDescription: "The display name. Renaming keeps the deployment's ID and key.",
@@ -111,6 +109,14 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 
 func (r *deploymentResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
+}
+
+func (r *deploymentResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, true)
+}
+
+func (m *deploymentModel) parents() parentRefs {
+	return parentRefs{Organization: m.OrganizationID, Workspace: m.WorkspaceID}
 }
 
 func (m *deploymentModel) newDeployment() client.NewDeployment {
@@ -160,7 +166,11 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	d, err := r.client.CreateDeployment(ctx, plan.OrganizationID.ValueString(), plan.WorkspaceID.ValueString(), plan.newDeployment())
+	ids, ok := recordParents(ctx, r.client, plan.parents(), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	d, err := r.client.CreateDeployment(ctx, ids.Organization, ids.Workspace, plan.newDeployment())
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot create the deployment", err.Error())
 		return

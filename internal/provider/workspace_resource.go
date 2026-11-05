@@ -16,6 +16,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &workspaceResource{}
 	_ resource.ResourceWithImportState = &workspaceResource{}
+	_ resource.ResourceWithModifyPlan  = &workspaceResource{}
 )
 
 func NewWorkspaceResource() resource.Resource {
@@ -51,9 +52,8 @@ func (r *workspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"organization_id": schema.StringAttribute{
-				MarkdownDescription: "The ID or slug of the organization that owns the workspace. An ID survives a slug change.",
+				MarkdownDescription: "The ID or slug of the organization that owns the workspace.",
 				Required:            true,
-				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"slug": schema.StringAttribute{
 				MarkdownDescription: "The workspace's name in URLs: lowercase letters, digits and single dashes.",
@@ -77,6 +77,10 @@ func (r *workspaceResource) Configure(_ context.Context, req resource.ConfigureR
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
+func (r *workspaceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, false)
+}
+
 // set copies the response, but keeps organization_id as configured, which
 // may be a slug.
 func (m *workspaceModel) set(ws *client.Workspace) {
@@ -92,7 +96,11 @@ func (r *workspaceResource) Create(ctx context.Context, req resource.CreateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	ws, err := r.client.CreateWorkspace(ctx, plan.OrganizationID.ValueString(), client.NewWorkspace{
+	ids, ok := recordParents(ctx, r.client, organizationParent(plan.OrganizationID), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	ws, err := r.client.CreateWorkspace(ctx, ids.Organization, client.NewWorkspace{
 		Slug:    plan.Slug.ValueString(),
 		Name:    stringPointer(plan.Name),
 		IconURL: stringPointer(plan.IconURL),
@@ -111,7 +119,12 @@ func (r *workspaceResource) Read(ctx context.Context, req resource.ReadRequest, 
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	ws, err := r.client.ReadWorkspace(ctx, state.OrganizationID.ValueString(), state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ws, err := r.client.ReadWorkspace(ctx, ids.Organization, state.ID.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -142,7 +155,12 @@ func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateReque
 		patch.IconURL = stringPointer(plan.IconURL)
 		patch.ClearIconURL = plan.IconURL.IsNull()
 	}
-	ws, err := r.client.UpdateWorkspace(ctx, state.OrganizationID.ValueString(), state.ID.ValueString(), patch)
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ws, err := r.client.UpdateWorkspace(ctx, ids.Organization, state.ID.ValueString(), patch)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot update the workspace", err.Error())
 		return
@@ -157,7 +175,12 @@ func (r *workspaceResource) Delete(ctx context.Context, req resource.DeleteReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteWorkspace(ctx, state.OrganizationID.ValueString(), state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteWorkspace(ctx, ids.Organization, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the workspace", err.Error())
 	}

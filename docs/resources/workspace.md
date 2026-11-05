@@ -32,7 +32,7 @@ resource "tenzir_workspace" "soc" {
 
 ### Required
 
-- `organization_id` (String) The ID or slug of the organization that owns the workspace. An ID survives a slug change.
+- `organization_id` (String) The ID or slug of the organization that owns the workspace.
 - `slug` (String) The workspace's name in URLs: lowercase letters, digits and single dashes.
 
 ### Optional

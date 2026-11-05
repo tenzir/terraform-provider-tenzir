@@ -18,6 +18,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure   = &hostedDeploymentResource{}
 	_ resource.ResourceWithImportState = &hostedDeploymentResource{}
+	_ resource.ResourceWithModifyPlan  = &hostedDeploymentResource{}
 )
 
 const defaultHostedCreateTimeout = 15 * time.Minute
@@ -93,6 +94,10 @@ func (r *hostedDeploymentResource) Configure(_ context.Context, req resource.Con
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
+func (r *hostedDeploymentResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, true)
+}
+
 func (m *hostedDeploymentModel) set(d *client.DeploymentDetails) {
 	m.deploymentModel.set(d)
 	m.Size = optionalString(d.Size)
@@ -110,7 +115,11 @@ func (r *hostedDeploymentResource) Create(ctx context.Context, req resource.Crea
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	d, err := r.client.CreateHostedDeployment(ctx, plan.OrganizationID.ValueString(), plan.WorkspaceID.ValueString(), client.NewHostedDeployment{
+	ids, ok := recordParents(ctx, r.client, plan.parents(), resp.Private, &resp.Diagnostics)
+	if !ok {
+		return
+	}
+	d, err := r.client.CreateHostedDeployment(ctx, ids.Organization, ids.Workspace, client.NewHostedDeployment{
 		NewDeployment: plan.newDeployment(),
 		Image:         stringPointer(plan.Image),
 		Size:          stringPointer(plan.Size),

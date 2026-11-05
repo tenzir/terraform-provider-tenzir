@@ -192,7 +192,7 @@ func newFakeHostingPlatform(t *testing.T) *fakeHostingPlatform {
 	mux.HandleFunc("GET /api/organizations/{org}/workspaces/{ws}", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, client.Workspace{ID: "ws-1", Slug: "soc", OrgID: "org-1"})
 	})
-	mux.HandleFunc("POST /api/organizations/{org}/workspaces/soc/hosted-deployments", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/organizations/{org}/workspaces/{ws}/hosted-deployments", func(w http.ResponseWriter, r *http.Request) {
 		var body client.NewHostedDeployment
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
