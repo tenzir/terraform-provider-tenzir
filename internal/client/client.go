@@ -84,6 +84,7 @@ type Error struct {
 	Status    int
 	Tag       string
 	Message   string
+	body      []byte
 }
 
 func (e *Error) Error() string {
@@ -111,7 +112,7 @@ func HasStatus(err error, status int) bool {
 
 // decodeError turns a non-2xx response into an *Error.
 func decodeError(operation string, status int, body []byte) *Error {
-	e := &Error{Operation: operation, Status: status}
+	e := &Error{Operation: operation, Status: status, body: body}
 	var tagged struct {
 		Tag     string `json:"_tag"`
 		Message string `json:"message"`
