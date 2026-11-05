@@ -102,7 +102,8 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"deployment an empty configuration, so it stops its pipelines. For a deployment that Tenzir runs, " +
 			"use `tenzir_hosted_deployment`; for its connection status, the `tenzir_deployment` data source.\n\n" +
 			"Needs `Workspace.createDeployment` and `Deployment.read`, `Deployment.readTracker`, " +
-			"`Deployment.update`, `Deployment.changeTracker` and `Deployment.delete`.",
+			"`Deployment.update`, `Deployment.changeTracker` and `Deployment.delete`; parents given by slug " +
+			"also need `Workspace.read`.",
 		Attributes: deploymentAttributes(),
 	}
 }

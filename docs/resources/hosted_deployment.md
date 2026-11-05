@@ -4,14 +4,14 @@ page_title: "tenzir_hosted_deployment Resource - tenzir"
 subcategory: ""
 description: |-
   A deployment that Tenzir runs. The platform starts it and hands it its key, so it needs no install. Creating it waits until the deployment connects, for at most the create timeout (15 minutes by default). Destroying it stops and removes it.
-  Needs Workspace.createHostedDeployment and Deployment.read, Deployment.readTracker, Deployment.update, Deployment.changeTracker, Deployment.changeType and Deployment.delete. The platform hosts deployments only on Enterprise; tenzir_deployment_types says whether it does.
+  Needs Workspace.createHostedDeployment and Deployment.read, Deployment.readTracker, Deployment.update, Deployment.changeTracker, Deployment.changeType and Deployment.delete; parents given by slug also need Workspace.read. The platform hosts deployments only on Enterprise; tenzir_deployment_types says whether it does.
 ---
 
 # tenzir_hosted_deployment (Resource)
 
 A deployment that Tenzir runs. The platform starts it and hands it its key, so it needs no install. Creating it waits until the deployment connects, for at most the `create` timeout (15 minutes by default). Destroying it stops and removes it.
 
-Needs `Workspace.createHostedDeployment` and `Deployment.read`, `Deployment.readTracker`, `Deployment.update`, `Deployment.changeTracker`, `Deployment.changeType` and `Deployment.delete`. The platform hosts deployments only on Enterprise; `tenzir_deployment_types` says whether it does.
+Needs `Workspace.createHostedDeployment` and `Deployment.read`, `Deployment.readTracker`, `Deployment.update`, `Deployment.changeTracker`, `Deployment.changeType` and `Deployment.delete`; parents given by slug also need `Workspace.read`. The platform hosts deployments only on Enterprise; `tenzir_deployment_types` says whether it does.
 
 ## Example Usage
 
