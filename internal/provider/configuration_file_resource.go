@@ -52,21 +52,17 @@ func (r *configurationFileResource) Schema(_ context.Context, _ resource.SchemaR
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "One text file on one branch of a workspace's configuration repository, such as " +
 			"a pipeline at `pipelines/<name>.tql`. Deployments that follow the branch run what it declares.\n\n" +
-			"Every create, update and delete is one commit, which the provider makes through a draft of the " +
-			"calling user: it starts a draft at the branch tip, saves the change, and commits it. It retries " +
-			"once when the branch moves in between, and discards its draft when it fails. Writes to the same " +
-			"branch wait for each other within one Terraform run.\n\n" +
-			"A user has one draft per branch, which the web UI's editor shares. When that draft holds " +
-			"changes, the provider refuses to write to the branch rather than publish them; an empty draft, as " +
-			"opening the editor starts, is replaced. Run Terraform with an identity that does not edit the " +
-			"branch by hand, and not twice at once.\n\n" +
+			"Every create, update and delete is one commit by the credential's user, which the provider makes " +
+			"against the branch tip it read the file at. When the branch moves in between, it reads the file " +
+			"again and retries, up to three attempts. Writes to the same branch wait for each other within one " +
+			"Terraform run. The provider does not touch configuration drafts, so edits that someone has not " +
+			"published in the web UI stay as they are.\n\n" +
 			"Creating a file that exists with other content fails; import it instead. Deleting a file that is " +
 			"gone succeeds. Package files (`package.yaml`, `package.lock`, `src/`) are refused, because " +
 			"deployments do not run them yet. After a write, the provider warns when the branch holds " +
 			"something no deployment would take.\n\n" +
 			"Needs a user's credential and `Workspace.read`, `Workspace.readFileTree`, `Workspace.readFile`, " +
-			"`Workspace.readCommit`, `Workspace.readConfiguredPipelines`, `Workspace.createDraft`, " +
-			"`Workspace.readDraft`, `Workspace.saveDraft`, `Workspace.commitDraft` and `Workspace.discardDraft`.",
+			"`Workspace.readConfiguredPipelines` and `Workspace.commitChanges`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "`<organization ID>/<workspace ID>/<branch>:<path>`.",

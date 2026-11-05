@@ -1,15 +1,15 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"regexp"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -28,15 +28,51 @@ func testAccClient(t *testing.T) *client.Client {
 	return c
 }
 
-// draftScope is the test user's draft on main of the workspace with the
-// given slug.
-func draftScope(t *testing.T, c *client.Client, workspace string) client.DraftScope {
-	t.Helper()
+// uiDraft calls the draft API of the test user on main, as the web UI's
+// editor does, and decodes the answer into out.
+func uiDraft(c *client.Client, workspace, method, step string, body, out any) error {
 	account, err := c.ReadAccount(context.Background())
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
-	return client.DraftScope{Organization: os.Getenv("TENZIR_TEST_ORGANIZATION"), Workspace: workspace, UserID: account.User.ID, Branch: "main"}
+	target := fmt.Sprintf("%s/organizations/%s/workspaces/%s/configuration/drafts/%s/%s",
+		c.APIURL(), os.Getenv("TENZIR_TEST_ORGANIZATION"), workspace, account.User.ID, step)
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(encoded)
+	} else {
+		target += "?branch=main"
+	}
+	req, err := http.NewRequest(method, target, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-tenzir-api-key", os.Getenv("TENZIR_API_KEY"))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("%s %s: %d %s", method, step, resp.StatusCode, payload)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(payload, out)
+}
+
+type testDraft struct {
+	HeadSHA string `json:"headSha"`
 }
 
 func TestAccConfigurationFile(t *testing.T) {
@@ -69,7 +105,6 @@ resource "tenzir_configuration_file" "test" {
 		return hcl
 	}
 	var c *client.Client
-	var foreign *client.Draft
 	resource.Test(t, resource.TestCase{
 		PreCheck: func() {
 			testAccPreCheck(t)
@@ -83,7 +118,6 @@ resource "tenzir_configuration_file" "test" {
 					resource.TestCheckResourceAttr(file, "branch", "main"),
 					checkCommit(&c, file, "terraform: create pipelines/ingest.tql"),
 					checkDeploymentSeesCommit(&c, file),
-					checkNoDraft(&c, workspace),
 				),
 			},
 			{
@@ -105,27 +139,16 @@ resource "tenzir_configuration_file" "test" {
 			},
 			{
 				PreConfig: func() {
-					s := draftScope(t, c, workspace)
-					d, err := c.CreateDraft(context.Background(), s)
-					if err != nil {
-						t.Fatal(err)
-					}
 					text := "from {x: 0}\n"
-					foreign, err = c.SaveDraft(context.Background(), s, d.HeadSHA, nil,
-						[]client.FileChange{{Type: "put", Path: "pipelines/ingest.tql", Text: &text}})
-					if err != nil {
+					var d testDraft
+					if err := uiDraft(c, workspace, "POST", "", map[string]string{"branch": "main"}, &d); err != nil {
 						t.Fatal(err)
 					}
-				},
-				Config:      config("from {x: 3}\n", `"Count to three"`, true),
-				ExpectError: regexp.MustCompile(`unpublished changes in a draft`),
-			},
-			{
-				PreConfig: func() {
-					s := draftScope(t, c, workspace)
-					commit, err := c.CommitDraft(context.Background(), s)
-					if err != nil || commit != foreign.HeadSHA {
-						t.Fatalf("committing the draft from elsewhere: %v", err)
+					save := map[string]any{"branch": "main", "headSha": d.HeadSHA, "changes": []client.FileChange{
+						{Type: "put", Path: "pipelines/ingest.tql", Text: &text},
+					}}
+					if err := uiDraft(c, workspace, "POST", "save", save, nil); err != nil {
+						t.Fatal(err)
 					}
 				},
 				Config: config("from {x: 3}\n", `"Count to three"`, true),
@@ -133,6 +156,20 @@ resource "tenzir_configuration_file" "test" {
 					resource.TestCheckResourceAttr(file, "content", "from {x: 3}\n"),
 					checkCommit(&c, file, "Count to three"),
 					checkDeploymentSeesCommit(&c, file),
+					func(*terraform.State) error {
+						var d testDraft
+						if err := uiDraft(c, workspace, "GET", "detail", nil, &d); err != nil {
+							return fmt.Errorf("the web UI's draft is gone: %w", err)
+						}
+						f, err := c.ReadFile(context.Background(), os.Getenv("TENZIR_TEST_ORGANIZATION"), workspace, d.HeadSHA, "pipelines/ingest.tql")
+						if err != nil {
+							return err
+						}
+						if f.Text == nil || *f.Text != "from {x: 0}\n" {
+							return fmt.Errorf("the web UI's draft holds %v, not its own edit", f.Text)
+						}
+						return uiDraft(c, workspace, "POST", "discard", map[string]string{"branch": "main"}, nil)
+					},
 				),
 			},
 			{
@@ -216,7 +253,7 @@ resource "tenzir_configuration_file" "test" {
 			if len(commits) != 6 {
 				return fmt.Errorf("six writes made %d commits", len(commits))
 			}
-			return checkNoDraft(&c, workspace)(s)
+			return nil
 		}
 	}
 	resource.Test(t, resource.TestCase{
@@ -275,21 +312,6 @@ func checkDeploymentSeesCommit(c **client.Client, name string) resource.TestChec
 	}
 }
 
-func checkNoDraft(c **client.Client, workspace string) resource.TestCheckFunc {
-	return func(*terraform.State) error {
-		account, err := (*c).ReadAccount(context.Background())
-		if err != nil {
-			return err
-		}
-		s := client.DraftScope{Organization: os.Getenv("TENZIR_TEST_ORGANIZATION"), Workspace: workspace, UserID: account.User.ID, Branch: "main"}
-		_, err = (*c).ReadDraft(context.Background(), s)
-		if !client.IsNotFound(err) {
-			return fmt.Errorf("a draft is left behind: %v", err)
-		}
-		return nil
-	}
-}
-
 func TestConfigurationFileImportID(t *testing.T) {
 	org, ws, branch, p, err := splitConfigurationFileID("acme/soc/team/edge:pipelines/a:b.tql")
 	if err != nil || org != "acme" || ws != "soc" || branch != "team/edge" || p != "pipelines/a:b.tql" {
@@ -324,60 +346,82 @@ func TestConfigurationPath(t *testing.T) {
 }
 
 // TestPublishFileRetries checks that a commit refused because the branch
-// moved discards the draft and succeeds against the new tip.
+// moved is retried against the head that the refusal names.
 func TestPublishFileRetries(t *testing.T) {
-	var calls []string
-	var srv *httptest.Server
-	mux := http.NewServeMux()
-	reply := func(w http.ResponseWriter, v any) { _ = json.NewEncoder(w).Encode(v) }
-	drafts := "/api/organizations/org-1/workspaces/ws-1/configuration/drafts/user-1/"
-	mux.HandleFunc("GET "+client.WellKnownPath, func(w http.ResponseWriter, r *http.Request) {
-		reply(w, map[string]any{"apiUrl": srv.URL + "/api"})
-	})
-	mux.HandleFunc("GET /api/account", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, map[string]any{"_tag": "UserPrincipal", "user": map[string]any{"id": "user-1"}})
-	})
-	mux.HandleFunc("GET /api/organizations/org-1/workspaces/ws-1/file-tree", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, client.GitTree{Commit: fmt.Sprintf("tip-%d", len(calls))})
-	})
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		step := strings.TrimPrefix(r.URL.Path, drafts)
-		calls = append(calls, r.Method+" "+step)
-		switch step {
-		case "detail":
-			w.WriteHeader(http.StatusNotFound)
-			reply(w, map[string]any{"_tag": "NotFound"})
-		case "":
-			reply(w, client.Draft{HeadSHA: "empty", Status: "ready"})
-		case "save":
-			reply(w, map[string]any{"draft": client.Draft{HeadSHA: "saved", Status: "ready"}})
-		case "commit":
-			if !slices.Contains(calls, "POST discard") {
-				w.WriteHeader(http.StatusConflict)
-				reply(w, map[string]any{"_tag": client.TagDraftConflict, "message": "moved"})
-				return
-			}
-			reply(w, map[string]any{"branch": "main", "commit": "saved"})
-		case "discard":
-		default:
-			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
-		}
-	})
-	srv = httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	c, err := client.New(context.Background(), client.Config{URL: srv.URL, APIKey: "tnzu_fake"})
-	if err != nil {
-		t.Fatal(err)
-	}
 	text := "from {x: 1}\n"
-	commit, err := publishFile(context.Background(), c, branchTarget{Organization: "org-1", WorkspaceID: "ws-1", Branch: "main"},
-		fileWrite{Path: "pipelines/a.tql", Content: &text, Message: "m", Create: true})
-	if err != nil || commit != "saved" {
-		t.Fatalf("got %q, %v", commit, err)
-	}
-	want := []string{"GET detail", "POST ", "POST save", "POST commit", "POST discard",
-		"GET detail", "POST ", "POST save", "POST commit"}
-	if !slices.Equal(calls, want) {
-		t.Errorf("calls %q, want %q", calls, want)
+	for name, tc := range map[string]struct {
+		// moves is how many commits the branch refuses before it takes one.
+		moves int
+		// there is the content at every head after the first.
+		there  *string
+		commit string
+		calls  []string
+		fails  bool
+	}{
+		"commits at the moved head": {
+			moves: 1, commit: "new",
+			calls: []string{"commit tip", "file head-1", "commit head-1"},
+		},
+		"adopts content that arrived meanwhile": {
+			moves: 1, there: &text, commit: "head-1",
+			calls: []string{"commit tip", "file head-1"},
+		},
+		"gives up while the branch keeps moving": {
+			moves: 5, fails: true,
+			calls: []string{"commit tip", "file head-1", "commit head-1", "file head-2", "commit head-2"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var calls []string
+			var srv *httptest.Server
+			mux := http.NewServeMux()
+			reply := func(w http.ResponseWriter, status int, v any) {
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(v)
+			}
+			workspace := "/api/organizations/org-1/workspaces/ws-1"
+			mux.HandleFunc("GET "+client.WellKnownPath, func(w http.ResponseWriter, r *http.Request) {
+				reply(w, http.StatusOK, map[string]any{"apiUrl": srv.URL + "/api"})
+			})
+			mux.HandleFunc("GET "+workspace+"/file-tree", func(w http.ResponseWriter, r *http.Request) {
+				reply(w, http.StatusOK, client.GitTree{Commit: "tip"})
+			})
+			mux.HandleFunc("GET "+workspace+"/file", func(w http.ResponseWriter, r *http.Request) {
+				calls = append(calls, "file "+r.URL.Query().Get("commit"))
+				if tc.there == nil {
+					reply(w, http.StatusNotFound, map[string]any{"_tag": "NotFound"})
+					return
+				}
+				reply(w, http.StatusOK, client.GitFile{Path: "pipelines/a.tql", Text: tc.there})
+			})
+			moved := 0
+			mux.HandleFunc("POST "+workspace+"/configuration/commits", func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					ExpectedHead string `json:"expectedHead"`
+				}
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				calls = append(calls, "commit "+body.ExpectedHead)
+				if moved < tc.moves {
+					moved++
+					reply(w, http.StatusConflict, map[string]any{"_tag": client.TagHeadMoved, "message": "moved", "head": fmt.Sprintf("head-%d", moved)})
+					return
+				}
+				reply(w, http.StatusCreated, map[string]any{"branch": "main", "commit": "new"})
+			})
+			srv = httptest.NewServer(mux)
+			t.Cleanup(srv.Close)
+			c, err := client.New(context.Background(), client.Config{URL: srv.URL, APIKey: "tnzu_fake"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			commit, err := publishFile(context.Background(), c, branchTarget{Organization: "org-1", WorkspaceID: "ws-1", Branch: "main"},
+				fileWrite{Path: "pipelines/a.tql", Content: &text, Message: "m", Create: true})
+			if (err != nil) != tc.fails || commit != tc.commit {
+				t.Errorf("got %q, %v", commit, err)
+			}
+			if !slices.Equal(calls, tc.calls) {
+				t.Errorf("calls %q, want %q", calls, tc.calls)
+			}
+		})
 	}
 }
