@@ -31,6 +31,7 @@ resource "tenzir_api_key" "test" {
 			{
 				ResourceName:            "tenzir_api_key.test",
 				ImportState:             true,
+				ImportStateIdFunc:       importID("tenzir_api_key.test", "user_id", "id"),
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"key"},
 			},

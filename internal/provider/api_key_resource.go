@@ -138,7 +138,7 @@ func (r *apiKeyResource) Read(ctx context.Context, req resource.ReadRequest, res
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	key, err := r.client.ReadAPIKey(ctx, state.ID.ValueString())
+	key, err := r.client.ReadAPIKey(ctx, state.UserID.ValueString(), state.ID.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -162,23 +162,23 @@ func (r *apiKeyResource) Update(ctx context.Context, req resource.UpdateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	id := state.ID.ValueString()
+	user, id := state.UserID.ValueString(), state.ID.ValueString()
 	key := &client.APIKey{}
 	var err error
 	if !plan.Name.Equal(state.Name) {
-		if key, err = r.client.RenameAPIKey(ctx, id, plan.Name.ValueString()); err != nil {
+		if key, err = r.client.RenameAPIKey(ctx, user, id, plan.Name.ValueString()); err != nil {
 			resp.Diagnostics.AddError("Cannot rename the API key", err.Error())
 			return
 		}
 	}
 	if !plan.Policy.Equal(state.Policy) {
-		if key, err = r.client.SetAPIKeyPolicy(ctx, id, json.RawMessage(plan.Policy.ValueString())); err != nil {
+		if key, err = r.client.SetAPIKeyPolicy(ctx, user, id, json.RawMessage(plan.Policy.ValueString())); err != nil {
 			resp.Diagnostics.AddError("Cannot change the API key's policy", err.Error())
 			return
 		}
 	}
 	if key.ID == "" {
-		if key, err = r.client.ReadAPIKey(ctx, id); err != nil {
+		if key, err = r.client.ReadAPIKey(ctx, user, id); err != nil {
 			resp.Diagnostics.AddError("Cannot read the API key", err.Error())
 			return
 		}
@@ -194,11 +194,18 @@ func (r *apiKeyResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if _, err := r.client.RevokeAPIKey(ctx, state.ID.ValueString()); err != nil && !client.IsNotFound(err) {
+	if _, err := r.client.RevokeAPIKey(ctx, state.UserID.ValueString(), state.ID.ValueString()); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot revoke the API key", err.Error())
 	}
 }
 
+// ImportState takes "<user>/<key>", because a key is named under its owner.
 func (r *apiKeyResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	parts, err := splitImportID(req.ID, "user", "key")
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user_id"), parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }

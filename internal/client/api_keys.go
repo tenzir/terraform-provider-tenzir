@@ -6,11 +6,11 @@ import (
 )
 
 var (
-	opReadAPIKey      = op("GET", "/api-keys/{apiKeyId}")
+	opReadAPIKey      = op("GET", "/users/{userId}/api-keys/{apiKeyId}")
 	opCreateAPIKey    = op("POST", "/users/{userId}/api-keys")
-	opRevokeAPIKey    = op("POST", "/api-keys/{apiKeyId}/revoke")
-	opSetAPIKeyPolicy = op("POST", "/api-keys/{apiKeyId}/set-policy")
-	opRenameAPIKey    = op("POST", "/api-keys/{apiKeyId}/rename")
+	opRevokeAPIKey    = op("POST", "/users/{userId}/api-keys/{apiKeyId}/revoke")
+	opSetAPIKeyPolicy = op("POST", "/users/{userId}/api-keys/{apiKeyId}/set-policy")
+	opRenameAPIKey    = op("POST", "/users/{userId}/api-keys/{apiKeyId}/rename")
 )
 
 // APIKey is a key's metadata and stored policy; never its secret.
@@ -36,10 +36,10 @@ type NewAPIKey struct {
 	Key    string `json:"key"`
 }
 
-// ReadAPIKey reads a key by id.
-func (c *Client) ReadAPIKey(ctx context.Context, id string) (*APIKey, error) {
+// ReadAPIKey reads a user's key by id.
+func (c *Client) ReadAPIKey(ctx context.Context, userID, id string) (*APIKey, error) {
 	var out APIKey
-	if err := c.call(ctx, opReadAPIKey, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opReadAPIKey, []string{userID, id}, nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -59,33 +59,33 @@ func (c *Client) CreateAPIKey(ctx context.Context, userID, name string, policy j
 }
 
 // RevokeAPIKey stops a key working; its record stays.
-func (c *Client) RevokeAPIKey(ctx context.Context, id string) (*APIKey, error) {
+func (c *Client) RevokeAPIKey(ctx context.Context, userID, id string) (*APIKey, error) {
 	var out APIKey
-	if err := c.call(ctx, opRevokeAPIKey, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opRevokeAPIKey, []string{userID, id}, nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // SetAPIKeyPolicy replaces a key's policy.
-func (c *Client) SetAPIKeyPolicy(ctx context.Context, id string, policy json.RawMessage) (*APIKey, error) {
+func (c *Client) SetAPIKeyPolicy(ctx context.Context, userID, id string, policy json.RawMessage) (*APIKey, error) {
 	body := struct {
 		Policy json.RawMessage `json:"policy"`
 	}{policy}
 	var out APIKey
-	if err := c.call(ctx, opSetAPIKeyPolicy, []string{id}, nil, body, &out); err != nil {
+	if err := c.call(ctx, opSetAPIKeyPolicy, []string{userID, id}, nil, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // RenameAPIKey changes a key's display name.
-func (c *Client) RenameAPIKey(ctx context.Context, id, name string) (*APIKey, error) {
+func (c *Client) RenameAPIKey(ctx context.Context, userID, id, name string) (*APIKey, error) {
 	body := struct {
 		Name string `json:"name"`
 	}{name}
 	var out APIKey
-	if err := c.call(ctx, opRenameAPIKey, []string{id}, nil, body, &out); err != nil {
+	if err := c.call(ctx, opRenameAPIKey, []string{userID, id}, nil, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
