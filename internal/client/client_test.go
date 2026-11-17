@@ -119,7 +119,7 @@ func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = c.DeleteDeployment(context.Background(), "d")
+			err = c.DeleteDeployment(context.Background(), DeploymentRef{Organization: "o", Workspace: "w", ID: "d"})
 			if tc.want == 0 && err != nil || tc.want != 0 && !HasStatus(err, tc.want) {
 				t.Fatalf("got %v after %d calls", err, calls)
 			}

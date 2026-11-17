@@ -120,6 +120,16 @@ func (m *deploymentModel) parents() parentRefs {
 	return parentRefs{Organization: m.OrganizationID, Workspace: m.WorkspaceID}
 }
 
+// ref names the deployment by the IDs of the parents it recorded.
+func (m *deploymentModel) ref(ctx context.Context, c *client.Client, private privateGetter) (client.DeploymentRef, diag.Diagnostics) {
+	ids, diags := knownParents(ctx, c, private, m.parents())
+	return deploymentRef(ids, m.ID.ValueString()), diags
+}
+
+func deploymentRef(ids parentIDs, id string) client.DeploymentRef {
+	return client.DeploymentRef{Organization: ids.Organization, Workspace: ids.Workspace, ID: id}
+}
+
 func (m *deploymentModel) newDeployment() client.NewDeployment {
 	autoDeploy := m.AutoDeploy.ValueBool()
 	return client.NewDeployment{
@@ -142,17 +152,16 @@ func (m *deploymentModel) set(d *client.DeploymentDetails) {
 // update renames the deployment and changes its tracker where the plan
 // differs from the state, and moves each change it made into the state, so
 // that a failed step leaves the state at what the platform has.
-func (m *deploymentModel) update(ctx context.Context, c *client.Client, state *deploymentModel) error {
-	id := state.ID.ValueString()
+func (m *deploymentModel) update(ctx context.Context, c *client.Client, ref client.DeploymentRef, state *deploymentModel) error {
 	if !m.Name.Equal(state.Name) {
-		if _, err := c.UpdateDeployment(ctx, id, client.DeploymentPatch{Name: stringPointer(m.Name)}); err != nil {
+		if _, err := c.UpdateDeployment(ctx, ref, client.DeploymentPatch{Name: stringPointer(m.Name)}); err != nil {
 			return fmt.Errorf("renaming: %w", err)
 		}
 		state.Name = m.Name
 	}
 	if !m.Branch.Equal(state.Branch) || !m.AutoDeploy.Equal(state.AutoDeploy) {
 		tracker := client.Tracker{Branch: m.Branch.ValueString(), AutoDeploy: m.AutoDeploy.ValueBool()}
-		if _, err := c.ChangeDeploymentTracker(ctx, id, tracker); err != nil {
+		if _, err := c.ChangeDeploymentTracker(ctx, ref, tracker); err != nil {
 			return fmt.Errorf("changing the tracker: %w", err)
 		}
 		state.Branch = m.Branch
@@ -176,7 +185,7 @@ func (r *deploymentResource) Create(ctx context.Context, req resource.CreateRequ
 		resp.Diagnostics.AddError("Cannot create the deployment", err.Error())
 		return
 	}
-	details, err := r.client.ReadDeploymentDetails(ctx, d.ID)
+	details, err := r.client.ReadDeploymentDetails(ctx, deploymentRef(ids, d.ID))
 	if err != nil {
 		plan.ID = types.StringValue(d.ID)
 		plan.CreatedAt = types.StringNull()
@@ -194,7 +203,7 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	details, ok := readDeployment(ctx, r.client, state.ID.ValueString(), resp)
+	details, ok := readDeployment(ctx, r.client, &state, req, resp)
 	if !ok {
 		return
 	}
@@ -204,8 +213,13 @@ func (r *deploymentResource) Read(ctx context.Context, req resource.ReadRequest,
 
 // readDeployment reads a deployment's details, and removes the resource
 // from the state when it is gone.
-func readDeployment(ctx context.Context, c *client.Client, id string, resp *resource.ReadResponse) (*client.DeploymentDetails, bool) {
-	details, err := c.ReadDeploymentDetails(ctx, id)
+func readDeployment(ctx context.Context, c *client.Client, m *deploymentModel, req resource.ReadRequest, resp *resource.ReadResponse) (*client.DeploymentDetails, bool) {
+	ref, diags := m.ref(ctx, c, req.Private)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return nil, false
+	}
+	details, err := c.ReadDeploymentDetails(ctx, ref)
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return nil, false
@@ -224,7 +238,12 @@ func (r *deploymentResource) Update(ctx context.Context, req resource.UpdateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := plan.update(ctx, r.client, &state); err != nil {
+	ref, diags := state.ref(ctx, r.client, req.Private)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if err := plan.update(ctx, r.client, ref, &state); err != nil {
 		resp.Diagnostics.AddError("Cannot update the deployment", err.Error())
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 		return
@@ -238,7 +257,12 @@ func (r *deploymentResource) Delete(ctx context.Context, req resource.DeleteRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteDeployment(ctx, state.ID.ValueString())
+	ref, diags := state.ref(ctx, r.client, req.Private)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteDeployment(ctx, ref)
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the deployment", err.Error())
 	}
@@ -264,14 +288,10 @@ func importDeployment(ctx context.Context, c *client.Client, id, hosting string,
 		diags.AddError("Cannot import the deployment", err.Error())
 		return diags
 	}
-	details, err := c.ReadDeploymentDetails(ctx, parts[2])
+	// The platform finds a deployment only under its own workspace.
+	details, err := c.ReadDeploymentDetails(ctx, client.DeploymentRef{Organization: ws.OrgID, Workspace: ws.ID, ID: parts[2]})
 	if err != nil {
 		diags.AddError("Cannot import the deployment", err.Error())
-		return diags
-	}
-	if details.Deployment.WorkspaceID != ws.ID {
-		diags.AddError("Cannot import the deployment",
-			fmt.Sprintf("Deployment %s belongs to workspace %s, not %s.", parts[2], details.Deployment.WorkspaceID, ws.ID))
 		return diags
 	}
 	if details.Hosting != hosting {

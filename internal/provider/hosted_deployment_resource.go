@@ -130,7 +130,8 @@ func (r *hostedDeploymentResource) Create(ctx context.Context, req resource.Crea
 		resp.Diagnostics.AddError("Cannot create the hosted deployment", err.Error())
 		return
 	}
-	details, err := r.client.ReadDeploymentDetails(ctx, d.ID)
+	ref := deploymentRef(ids, d.ID)
+	details, err := r.client.ReadDeploymentDetails(ctx, ref)
 	if err != nil {
 		plan.ID = types.StringValue(d.ID)
 		plan.CreatedAt = types.StringNull()
@@ -151,23 +152,23 @@ func (r *hostedDeploymentResource) Create(ctx context.Context, req resource.Crea
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	if err := waitUntilReachable(ctx, r.client, d.ID, timeout); err != nil {
+	if err := waitUntilReachable(ctx, r.client, ref, timeout); err != nil {
 		resp.Diagnostics.AddError("The hosted deployment did not connect", err.Error())
 	}
 }
 
 // waitUntilReachable polls a deployment until it is connected to the
 // platform.
-func waitUntilReachable(ctx context.Context, c *client.Client, id string, timeout time.Duration) error {
+func waitUntilReachable(ctx context.Context, c *client.Client, ref client.DeploymentRef, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(reachablePollInterval)
 	defer ticker.Stop()
 	for {
-		details, err := c.ReadDeploymentDetails(ctx, id)
+		details, err := c.ReadDeploymentDetails(ctx, ref)
 		if err != nil {
 			if ctx.Err() != nil {
-				return fmt.Errorf("deployment %s did not connect within %s", id, timeout)
+				return fmt.Errorf("deployment %s did not connect within %s", ref.ID, timeout)
 			}
 			return err
 		}
@@ -176,7 +177,7 @@ func waitUntilReachable(ctx context.Context, c *client.Client, id string, timeou
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("deployment %s did not connect within %s", id, timeout)
+			return fmt.Errorf("deployment %s did not connect within %s", ref.ID, timeout)
 		case <-ticker.C:
 		}
 	}
@@ -188,7 +189,7 @@ func (r *hostedDeploymentResource) Read(ctx context.Context, req resource.ReadRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	details, ok := readDeployment(ctx, r.client, state.ID.ValueString(), resp)
+	details, ok := readDeployment(ctx, r.client, &state.deploymentModel, req, resp)
 	if !ok {
 		return
 	}
@@ -203,9 +204,14 @@ func (r *hostedDeploymentResource) Update(ctx context.Context, req resource.Upda
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := plan.deploymentModel.update(ctx, r.client, &state.deploymentModel)
+	ref, diags := state.ref(ctx, r.client, req.Private)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := plan.deploymentModel.update(ctx, r.client, ref, &state.deploymentModel)
 	if err == nil && !plan.Size.IsUnknown() && !plan.Size.Equal(state.Size) {
-		err = r.client.ChangeDeploymentType(ctx, state.ID.ValueString(), plan.Size.ValueString())
+		err = r.client.ChangeDeploymentType(ctx, ref, plan.Size.ValueString())
 		if err != nil {
 			err = fmt.Errorf("changing the size: %w", err)
 		}
@@ -227,7 +233,12 @@ func (r *hostedDeploymentResource) Delete(ctx context.Context, req resource.Dele
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteDeployment(ctx, state.ID.ValueString())
+	ref, diags := state.ref(ctx, r.client, req.Private)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteDeployment(ctx, ref)
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the hosted deployment", err.Error())
 	}

@@ -21,21 +21,22 @@ type deploymentDataSource struct {
 }
 
 type deploymentDataModel struct {
-	ID           types.String `tfsdk:"id"`
-	WorkspaceID  types.String `tfsdk:"workspace_id"`
-	Name         types.String `tfsdk:"name"`
-	Hosting      types.String `tfsdk:"hosting"`
-	Size         types.String `tfsdk:"size"`
-	Region       types.String `tfsdk:"region"`
-	Branch       types.String `tfsdk:"branch"`
-	AutoDeploy   types.Bool   `tfsdk:"auto_deploy"`
-	Reachable    types.Bool   `tfsdk:"reachable"`
-	Version      types.String `tfsdk:"version"`
-	Source       types.String `tfsdk:"source"`
-	Runtime      types.String `tfsdk:"runtime"`
-	LastSeen     types.String `tfsdk:"last_seen"`
-	UpgradeImage types.String `tfsdk:"upgrade_image"`
-	CreatedAt    types.String `tfsdk:"created_at"`
+	ID             types.String `tfsdk:"id"`
+	OrganizationID types.String `tfsdk:"organization_id"`
+	WorkspaceID    types.String `tfsdk:"workspace_id"`
+	Name           types.String `tfsdk:"name"`
+	Hosting        types.String `tfsdk:"hosting"`
+	Size           types.String `tfsdk:"size"`
+	Region         types.String `tfsdk:"region"`
+	Branch         types.String `tfsdk:"branch"`
+	AutoDeploy     types.Bool   `tfsdk:"auto_deploy"`
+	Reachable      types.Bool   `tfsdk:"reachable"`
+	Version        types.String `tfsdk:"version"`
+	Source         types.String `tfsdk:"source"`
+	Runtime        types.String `tfsdk:"runtime"`
+	LastSeen       types.String `tfsdk:"last_seen"`
+	UpgradeImage   types.String `tfsdk:"upgrade_image"`
+	CreatedAt      types.String `tfsdk:"created_at"`
 }
 
 func (d *deploymentDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -48,19 +49,27 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "A deployment as it is right now: whether it is connected, and what it last " +
-			"reported. Needs `Deployment.read` and `Deployment.readTracker`.",
+			"reported. Needs `Deployment.read` and `Deployment.readTracker`; a workspace given by slug also " +
+			"needs `Workspace.read`.",
 		Attributes: map[string]schema.Attribute{
-			"id":           schema.StringAttribute{MarkdownDescription: "The deployment ID.", Required: true},
-			"workspace_id": computed("The ID of its workspace."),
-			"name":         computed("The display name."),
-			"hosting":      computed("Who runs it: `tenzir` or `customer`."),
-			"size":         computed("The size it runs as; null unless Tenzir runs it."),
-			"region":       computed("The cloud region it runs in; null unless Tenzir runs it."),
-			"branch":       computed("The branch it follows."),
-			"auto_deploy":  schema.BoolAttribute{MarkdownDescription: "Whether new commits deploy on their own.", Computed: true},
-			"reachable":    schema.BoolAttribute{MarkdownDescription: "Whether it is connected to the platform.", Computed: true},
-			"version":      computed("The version it reported when it last connected."),
-			"source":       computed("The source tag of the build it ran when it last connected, such as `src-<hash>`."),
+			"id": schema.StringAttribute{MarkdownDescription: "The deployment ID.", Required: true},
+			"organization_id": schema.StringAttribute{
+				MarkdownDescription: "The ID or slug of the organization.",
+				Required:            true,
+			},
+			"workspace_id": schema.StringAttribute{
+				MarkdownDescription: "The ID or slug of the workspace the deployment belongs to.",
+				Required:            true,
+			},
+			"name":        computed("The display name."),
+			"hosting":     computed("Who runs it: `tenzir` or `customer`."),
+			"size":        computed("The size it runs as; null unless Tenzir runs it."),
+			"region":      computed("The cloud region it runs in; null unless Tenzir runs it."),
+			"branch":      computed("The branch it follows."),
+			"auto_deploy": schema.BoolAttribute{MarkdownDescription: "Whether new commits deploy on their own.", Computed: true},
+			"reachable":   schema.BoolAttribute{MarkdownDescription: "Whether it is connected to the platform.", Computed: true},
+			"version":     computed("The version it reported when it last connected."),
+			"source":      computed("The source tag of the build it ran when it last connected, such as `src-<hash>`."),
 			"runtime": computed("What ran it when it last connected: `kubernetes`, `ecs`, `compose`, `docker`, " +
 				"`systemd` or `unmanaged`."),
 			"last_seen": computed("When it was last connected."),
@@ -81,7 +90,12 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	details, err := d.client.ReadDeploymentDetails(ctx, config.ID.ValueString())
+	ids, err := resolveParents(ctx, d.client, parentRefs{Organization: config.OrganizationID, Workspace: config.WorkspaceID})
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot find the deployment's workspace", err.Error())
+		return
+	}
+	details, err := d.client.ReadDeploymentDetails(ctx, deploymentRef(ids, config.ID.ValueString()))
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot read the deployment", err.Error())
 		return
@@ -91,20 +105,21 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		upgrade = types.StringValue(details.Upgrade.Image)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &deploymentDataModel{
-		ID:           types.StringValue(details.Deployment.ID),
-		WorkspaceID:  types.StringValue(details.Deployment.WorkspaceID),
-		Name:         types.StringValue(details.Deployment.Name),
-		Hosting:      types.StringValue(details.Hosting),
-		Size:         optionalString(details.Size),
-		Region:       optionalString(details.Region),
-		Branch:       types.StringValue(details.Tracker.Branch),
-		AutoDeploy:   types.BoolValue(details.Tracker.AutoDeploy),
-		Reachable:    types.BoolValue(details.Reachable),
-		Version:      optionalString(details.Deployment.Version),
-		Source:       optionalString(details.Source),
-		Runtime:      optionalString(details.Runtime),
-		LastSeen:     optionalString(details.Deployment.LastSeen),
-		UpgradeImage: upgrade,
-		CreatedAt:    types.StringValue(details.CreatedAt),
+		ID:             types.StringValue(details.Deployment.ID),
+		OrganizationID: config.OrganizationID,
+		WorkspaceID:    config.WorkspaceID,
+		Name:           types.StringValue(details.Deployment.Name),
+		Hosting:        types.StringValue(details.Hosting),
+		Size:           optionalString(details.Size),
+		Region:         optionalString(details.Region),
+		Branch:         types.StringValue(details.Tracker.Branch),
+		AutoDeploy:     types.BoolValue(details.Tracker.AutoDeploy),
+		Reachable:      types.BoolValue(details.Reachable),
+		Version:        optionalString(details.Deployment.Version),
+		Source:         optionalString(details.Source),
+		Runtime:        optionalString(details.Runtime),
+		LastSeen:       optionalString(details.Deployment.LastSeen),
+		UpgradeImage:   upgrade,
+		CreatedAt:      types.StringValue(details.CreatedAt),
 	})...)
 }

@@ -300,8 +300,9 @@ func checkCommit(c **client.Client, name, message string) resource.TestCheckFunc
 func checkDeploymentSeesCommit(c **client.Client, name string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		commit := s.RootModule().Resources[name].Primary.Attributes["commit"]
-		id := s.RootModule().Resources["tenzir_deployment.test"].Primary.ID
-		status, err := (*c).ReadDeploymentConfigurationStatus(context.Background(), id)
+		d := s.RootModule().Resources["tenzir_deployment.test"].Primary.Attributes
+		ref := client.DeploymentRef{Organization: d["organization_id"], Workspace: d["workspace_id"], ID: d["id"]}
+		status, err := (*c).ReadDeploymentConfigurationStatus(context.Background(), ref)
 		if err != nil {
 			return err
 		}

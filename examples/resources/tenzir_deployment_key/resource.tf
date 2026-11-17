@@ -1,5 +1,7 @@
 resource "tenzir_deployment_key" "edge" {
-  deployment_id = tenzir_deployment.edge.id
+  organization_id = tenzir_deployment.edge.organization_id
+  workspace_id    = tenzir_deployment.edge.workspace_id
+  deployment_id   = tenzir_deployment.edge.id
   # Change this to mint a new key.
   triggers = {
     rotation = "2026-11"

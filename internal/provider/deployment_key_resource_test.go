@@ -23,12 +23,16 @@ resource "tenzir_deployment" "test" {
 }
 
 resource "tenzir_deployment_key" "test" {
-  deployment_id = tenzir_deployment.test.id
-  triggers      = { rotation = "%d" }
+  organization_id = tenzir_deployment.test.organization_id
+  workspace_id    = tenzir_deployment.test.workspace_id
+  deployment_id   = tenzir_deployment.test.id
+  triggers        = { rotation = "%d" }
 }
 
 data "tenzir_deployment" "test" {
-  id = tenzir_deployment_key.test.deployment_id
+  organization_id = tenzir_deployment_key.test.organization_id
+  workspace_id    = tenzir_deployment_key.test.workspace_id
+  id              = tenzir_deployment_key.test.deployment_id
 }
 `, workspace, rotation)
 	}

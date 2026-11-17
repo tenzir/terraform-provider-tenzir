@@ -5,7 +5,7 @@ subcategory: ""
 description: |-
   The key a self-hosted deployment connects with, which it presents as x-tenzir-deployment-key. The deployment reads it from the file that its --key-file option names, together with --id for the deployment ID. Creating this resource mints a new key, which stops the previous one working: a deployment connected with it stays connected, but cannot reconnect until it has the new one. Changing triggers mints another.
   The platform shows a key only once, so the state holds it and it cannot be imported. Destroying the resource only removes the key from the state: the deployment keeps connecting with it until a new key is minted or the deployment is deleted. A hosted deployment's key belongs to the platform, which refuses to rotate it.
-  Needs Deployment.rotateKey and Deployment.read.
+  Needs Deployment.rotateKey and Deployment.read; parents given by slug also need Workspace.read.
 ---
 
 # tenzir_deployment_key (Resource)
@@ -14,13 +14,15 @@ The key a self-hosted deployment connects with, which it presents as `x-tenzir-d
 
 The platform shows a key only once, so the state holds it and it cannot be imported. Destroying the resource only removes the key from the state: the deployment keeps connecting with it until a new key is minted or the deployment is deleted. A hosted deployment's key belongs to the platform, which refuses to rotate it.
 
-Needs `Deployment.rotateKey` and `Deployment.read`.
+Needs `Deployment.rotateKey` and `Deployment.read`; parents given by slug also need `Workspace.read`.
 
 ## Example Usage
 
 ```terraform
 resource "tenzir_deployment_key" "edge" {
-  deployment_id = tenzir_deployment.edge.id
+  organization_id = tenzir_deployment.edge.organization_id
+  workspace_id    = tenzir_deployment.edge.workspace_id
+  deployment_id   = tenzir_deployment.edge.id
   # Change this to mint a new key.
   triggers = {
     rotation = "2026-11"
@@ -40,6 +42,8 @@ resource "local_sensitive_file" "edge_key" {
 ### Required
 
 - `deployment_id` (String) The ID of the self-hosted deployment.
+- `organization_id` (String) The ID or slug of the organization.
+- `workspace_id` (String) The ID or slug of the deployment's workspace.
 
 ### Optional
 

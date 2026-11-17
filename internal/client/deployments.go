@@ -13,15 +13,29 @@ var (
 
 	opCreateDeployment        = op("POST", "/organizations/{org}/workspaces/{workspace}/deployments")
 	opCreateHostedDeployment  = op("POST", "/organizations/{org}/workspaces/{workspace}/hosted-deployments")
-	opReadDeploymentDetails   = op("GET", "/deployments/{deploymentId}/details")
-	opUpdateDeployment        = op("POST", "/deployments/{deploymentId}/update")
-	opChangeDeploymentTracker = op("PUT", "/deployments/{deploymentId}/tracker")
-	opChangeDeploymentType    = op("PUT", "/deployments/{deploymentId}/type")
-	opRotateDeploymentKey     = op("POST", "/deployments/{deploymentId}/rotate-key")
-	opDeleteDeployment        = op("DELETE", "/deployments/{deploymentId}")
+	opReadDeploymentDetails   = op("GET", deploymentPath+"/details")
+	opUpdateDeployment        = op("POST", deploymentPath+"/update")
+	opChangeDeploymentTracker = op("POST", deploymentPath+"/tracker/update")
+	opChangeDeploymentType    = op("POST", deploymentPath+"/change-type")
+	opRotateDeploymentKey     = op("POST", deploymentPath+"/rotate-key")
+	opDeleteDeployment        = op("DELETE", deploymentPath)
 
-	opReadDeploymentConfigurationStatus = op("GET", "/deployments/{deploymentId}/configuration/status")
+	opReadDeploymentConfigurationStatus = op("GET", deploymentPath+"/configuration/status")
 )
+
+const deploymentPath = "/organizations/{org}/workspaces/{workspace}/deployments/{deploymentId}"
+
+// DeploymentRef names a deployment under its organization and workspace, as
+// the platform's URLs do, each by ID.
+type DeploymentRef struct {
+	Organization string
+	Workspace    string
+	ID           string
+}
+
+func (d DeploymentRef) args() []string {
+	return []string{d.Organization, d.Workspace, d.ID}
+}
 
 // Deployment is what the platform records about a deployment.
 type Deployment struct {
@@ -161,18 +175,18 @@ func (c *Client) CreateHostedDeployment(ctx context.Context, org, workspace stri
 
 // ReadDeploymentDetails reads a deployment with its hosting, connection and
 // tracker.
-func (c *Client) ReadDeploymentDetails(ctx context.Context, id string) (*DeploymentDetails, error) {
+func (c *Client) ReadDeploymentDetails(ctx context.Context, d DeploymentRef) (*DeploymentDetails, error) {
 	var out DeploymentDetails
-	if err := c.call(ctx, opReadDeploymentDetails, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opReadDeploymentDetails, d.args(), nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // UpdateDeployment renames a deployment.
-func (c *Client) UpdateDeployment(ctx context.Context, id string, patch DeploymentPatch) (*Deployment, error) {
+func (c *Client) UpdateDeployment(ctx context.Context, d DeploymentRef, patch DeploymentPatch) (*Deployment, error) {
 	var out Deployment
-	if err := c.call(ctx, opUpdateDeployment, []string{id}, nil, patch, &out); err != nil {
+	if err := c.call(ctx, opUpdateDeployment, d.args(), nil, patch, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -181,9 +195,9 @@ func (c *Client) UpdateDeployment(ctx context.Context, id string, patch Deployme
 // ChangeDeploymentTracker sets the branch a deployment follows and whether it
 // deploys new commits on its own. The platform refuses a branch without
 // commits.
-func (c *Client) ChangeDeploymentTracker(ctx context.Context, id string, t Tracker) (*Tracker, error) {
+func (c *Client) ChangeDeploymentTracker(ctx context.Context, d DeploymentRef, t Tracker) (*Tracker, error) {
 	var out Tracker
-	if err := c.call(ctx, opChangeDeploymentTracker, []string{id}, nil, t, &out); err != nil {
+	if err := c.call(ctx, opChangeDeploymentTracker, d.args(), nil, t, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -191,20 +205,20 @@ func (c *Client) ChangeDeploymentTracker(ctx context.Context, id string, t Track
 
 // ChangeDeploymentType runs a hosted deployment as another size, which
 // restarts it.
-func (c *Client) ChangeDeploymentType(ctx context.Context, id, size string) error {
+func (c *Client) ChangeDeploymentType(ctx context.Context, d DeploymentRef, size string) error {
 	body := struct {
 		Size string `json:"size"`
 	}{size}
-	return c.call(ctx, opChangeDeploymentType, []string{id}, nil, body, nil)
+	return c.call(ctx, opChangeDeploymentType, d.args(), nil, body, nil)
 }
 
 // RotateDeploymentKey mints a new key for a self-hosted deployment, which
 // stops the previous one working, and returns its secret.
-func (c *Client) RotateDeploymentKey(ctx context.Context, id string) (string, error) {
+func (c *Client) RotateDeploymentKey(ctx context.Context, d DeploymentRef) (string, error) {
 	var out struct {
 		Secret string `json:"secret"`
 	}
-	if err := c.call(ctx, opRotateDeploymentKey, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opRotateDeploymentKey, d.args(), nil, nil, &out); err != nil {
 		return "", err
 	}
 	return out.Secret, nil
@@ -217,9 +231,9 @@ var deleteRetries = []time.Duration{2 * time.Second, 5 * time.Second, 10 * time.
 
 // DeleteDeployment deletes a deployment with its metrics, after handing a
 // connected one an empty configuration.
-func (c *Client) DeleteDeployment(ctx context.Context, id string) error {
+func (c *Client) DeleteDeployment(ctx context.Context, d DeploymentRef) error {
 	for _, wait := range deleteRetries {
-		err := c.call(ctx, opDeleteDeployment, []string{id}, nil, nil, nil)
+		err := c.call(ctx, opDeleteDeployment, d.args(), nil, nil, nil)
 		if !HasStatus(err, http.StatusServiceUnavailable) {
 			return err
 		}
@@ -229,14 +243,14 @@ func (c *Client) DeleteDeployment(ctx context.Context, id string) error {
 		case <-time.After(wait):
 		}
 	}
-	return c.call(ctx, opDeleteDeployment, []string{id}, nil, nil, nil)
+	return c.call(ctx, opDeleteDeployment, d.args(), nil, nil, nil)
 }
 
 // ReadDeploymentConfigurationStatus reads the tip of the branch a deployment
 // follows.
-func (c *Client) ReadDeploymentConfigurationStatus(ctx context.Context, id string) (*ConfigurationStatus, error) {
+func (c *Client) ReadDeploymentConfigurationStatus(ctx context.Context, d DeploymentRef) (*ConfigurationStatus, error) {
 	var out ConfigurationStatus
-	if err := c.call(ctx, opReadDeploymentConfigurationStatus, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opReadDeploymentConfigurationStatus, d.args(), nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -3,18 +3,20 @@
 page_title: "tenzir_deployment Data Source - tenzir"
 subcategory: ""
 description: |-
-  A deployment as it is right now: whether it is connected, and what it last reported. Needs Deployment.read and Deployment.readTracker.
+  A deployment as it is right now: whether it is connected, and what it last reported. Needs Deployment.read and Deployment.readTracker; a workspace given by slug also needs Workspace.read.
 ---
 
 # tenzir_deployment (Data Source)
 
-A deployment as it is right now: whether it is connected, and what it last reported. Needs `Deployment.read` and `Deployment.readTracker`.
+A deployment as it is right now: whether it is connected, and what it last reported. Needs `Deployment.read` and `Deployment.readTracker`; a workspace given by slug also needs `Workspace.read`.
 
 ## Example Usage
 
 ```terraform
 data "tenzir_deployment" "edge" {
-  id = tenzir_deployment.edge.id
+  organization_id = tenzir_deployment.edge.organization_id
+  workspace_id    = tenzir_deployment.edge.workspace_id
+  id              = tenzir_deployment.edge.id
 }
 
 output "edge_connected" {
@@ -28,6 +30,8 @@ output "edge_connected" {
 ### Required
 
 - `id` (String) The deployment ID.
+- `organization_id` (String) The ID or slug of the organization.
+- `workspace_id` (String) The ID or slug of the workspace the deployment belongs to.
 
 ### Read-Only
 
@@ -44,4 +48,3 @@ output "edge_connected" {
 - `source` (String) The source tag of the build it ran when it last connected, such as `src-<hash>`.
 - `upgrade_image` (String) The image of the platform's version, when it runs an older one; null when it is current or the platform cannot tell.
 - `version` (String) The version it reported when it last connected.
-- `workspace_id` (String) The ID of its workspace.
