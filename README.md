@@ -49,9 +49,15 @@ An API key acts as its user, limited further by its own policy. The user
 needs every permission that the managed resources need; each resource's
 documentation lists them.
 
+A platform administrator's key may set organizations up for others: create
+one under a fixed ID without becoming its member, and add users to it
+directly. The key's policy must name those permissions too, such as
+`Root.provisionOrganization`, `Root.listUsers` and `Organization.addMember`.
+
 ### Resources
 
 - `tenzir_workspace`
+- `tenzir_organization` and `tenzir_organization_member`
 - `tenzir_role` and `tenzir_role_assignment`
 - `tenzir_api_key`
 - `tenzir_secret`, at the organization, workspace or deployment level
@@ -63,6 +69,7 @@ documentation lists them.
 
 - `tenzir_organization` and `tenzir_workspace`
 - `tenzir_people` and `tenzir_roles`
+- `tenzir_user`
 - `tenzir_deployment`, `tenzir_deployment_types` and `tenzir_deployment_images`
 
 See [`docs/`](docs/) for every attribute, and [`examples/`](examples/).

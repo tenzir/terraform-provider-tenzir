@@ -86,9 +86,10 @@ compares parents by ID:
 Data sources: `tenzir_organization`, `tenzir_workspace`, `tenzir_people`,
 `tenzir_roles`, `tenzir_deployment_types`, `tenzir_deployment_images`.
 
-`tenzir_organization` is only a data source in phase 1. Creating an
+`tenzir_organization` was only a data source in phase 1. Creating an
 organization needs a user identity, and its delete is refused while the
-organization holds anything.
+organization holds anything. It is a resource too since administrators can
+provision organizations; see open item 6.
 
 ### Phase 2: deployments
 
@@ -151,7 +152,11 @@ refuses a colon in a branch name, so the first colon ends the branch.
 4. Open: creating a deployment accepts a branch without commits, which
    `PUT …/tracker` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
-6. Later: a member invitation API, for a `tenzir_organization_member` resource.
+6. Done for administrators: `PUT /organizations/:id` creates an organization
+   under a fixed ID without members, `POST …/members` adds an existing user
+   with roles, and `GET /users?email=` finds them. Only `sys.admin` holds
+   these, which `tenzir_organization` with `id`, `tenzir_organization_member`
+   and `tenzir_user` need. Members other people join still need invitations.
 7. Done: `POST …/configuration/commits` commits changes against an expected
    head, without a draft, under `Workspace.commitChanges`. A commit names a
    user as its author, so it takes a user or a user's API key; service

@@ -6,15 +6,19 @@ import (
 )
 
 var (
-	opReadOrganization = op("GET", "/organizations/{org}")
-	opListPeople       = op("GET", "/organizations/{org}/people")
-	opListRoles        = op("GET", "/organizations/{org}/roles")
-	opCreateRole       = op("POST", "/organizations/{org}/roles")
-	opReadRole         = op("GET", "/organizations/{org}/roles/{roleId}")
-	opUpdateRole       = op("POST", "/organizations/{org}/roles/{roleId}/update")
-	opDeleteRole       = op("DELETE", "/organizations/{org}/roles/{roleId}")
-	opAssignMemberRole = op("PUT", "/organizations/{org}/people/{userId}/roles/{roleId}")
-	opRevokeMemberRole = op("DELETE", "/organizations/{org}/people/{userId}/roles/{roleId}")
+	opReadOrganization      = op("GET", "/organizations/{org}")
+	opCreateOrganization    = op("POST", "/organizations")
+	opProvisionOrganization = op("PUT", "/organizations/{org}")
+	opUpdateOrganization    = op("POST", "/organizations/{org}/update")
+	opDeleteOrganization    = op("DELETE", "/organizations/{org}")
+	opListPeople            = op("GET", "/organizations/{org}/people")
+	opListRoles             = op("GET", "/organizations/{org}/roles")
+	opCreateRole            = op("POST", "/organizations/{org}/roles")
+	opReadRole              = op("GET", "/organizations/{org}/roles/{roleId}")
+	opUpdateRole            = op("POST", "/organizations/{org}/roles/{roleId}/update")
+	opDeleteRole            = op("DELETE", "/organizations/{org}/roles/{roleId}")
+	opAssignMemberRole      = op("PUT", "/organizations/{org}/people/{userId}/roles/{roleId}")
+	opRevokeMemberRole      = op("DELETE", "/organizations/{org}/people/{userId}/roles/{roleId}")
 )
 
 // Organization is an organization with the number of its members.
@@ -26,6 +30,26 @@ type Organization struct {
 	CreatedBy   *string `json:"createdBy,omitempty"`
 	CreatedAt   string  `json:"createdAt"`
 	MemberCount int64   `json:"memberCount"`
+}
+
+// NewOrganization is what creating an organization takes. Without a name,
+// the organization is named after its slug.
+type NewOrganization struct {
+	Slug    string  `json:"slug"`
+	Name    *string `json:"name,omitempty"`
+	IconURL *string `json:"iconUrl,omitempty"`
+}
+
+// OrganizationPatch changes the fields it sets. ClearIconURL removes the icon.
+type OrganizationPatch struct {
+	Slug         *string
+	Name         *string
+	IconURL      *string
+	ClearIconURL bool
+}
+
+func (p OrganizationPatch) MarshalJSON() ([]byte, error) {
+	return json.Marshal(WorkspacePatch(p))
 }
 
 // Person is an organization member and the roles assigned to them.
@@ -74,6 +98,39 @@ func (c *Client) ReadOrganization(ctx context.Context, org string) (*Organizatio
 		return nil, err
 	}
 	return &out, nil
+}
+
+// CreateOrganization creates an organization with the caller as its owner.
+func (c *Client) CreateOrganization(ctx context.Context, org NewOrganization) (*Organization, error) {
+	var out Organization
+	if err := c.call(ctx, opCreateOrganization, nil, nil, org, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ProvisionOrganization creates an organization under the given ID, without
+// members. Only platform administrators may.
+func (c *Client) ProvisionOrganization(ctx context.Context, id string, org NewOrganization) (*Organization, error) {
+	var out Organization
+	if err := c.call(ctx, opProvisionOrganization, []string{id}, nil, org, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// UpdateOrganization changes an organization.
+func (c *Client) UpdateOrganization(ctx context.Context, org string, patch OrganizationPatch) (*Organization, error) {
+	var out Organization
+	if err := c.call(ctx, opUpdateOrganization, []string{org}, nil, patch, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// DeleteOrganization deletes an empty organization.
+func (c *Client) DeleteOrganization(ctx context.Context, org string) error {
+	return c.call(ctx, opDeleteOrganization, []string{org}, nil, nil, nil)
 }
 
 // ListPeople lists the members of an organization.
