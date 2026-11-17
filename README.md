@@ -60,6 +60,7 @@ policy must name those permissions too, `Root.provisionOrganization` and
 - `tenzir_workspace`
 - `tenzir_organization` and `tenzir_organization_member`, the latter for the
   account that manages an organization, not for its users
+- `tenzir_demo_organization`, Tenzir-internal: the organization new users join
 - `tenzir_role` and `tenzir_role_assignment`
 - `tenzir_api_key`
 - `tenzir_secret`, at the organization, workspace or deployment level

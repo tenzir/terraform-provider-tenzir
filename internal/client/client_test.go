@@ -135,6 +135,10 @@ func TestAdministratorRequests(t *testing.T) {
 	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		got = append(got, r.Method+" "+r.URL.Path+" "+string(body))
+		if r.Method == "GET" {
+			_, _ = w.Write([]byte(`null`))
+			return
+		}
 		_, _ = w.Write([]byte(`{}`))
 	})
 	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
@@ -151,11 +155,23 @@ func TestAdministratorRequests(t *testing.T) {
 	if err := c.RemoveMember(ctx, "demo", "member-id"); err != nil {
 		t.Fatal(err)
 	}
+	if setup, err := c.ReadDemoOrgSetup(ctx); err != nil || setup != nil {
+		t.Fatalf("got %v, %v for no demo organization", setup, err)
+	}
+	if _, err := c.SetDemoOrgSetup(ctx, DemoOrgSetup{OrganizationID: "org-id", RoleID: "role-id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemoveDemoOrgSetup(ctx); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
 		`POST /api/organizations/provision {"slug":"demo"}`,
 		// The platform requires the roles, even when there are none.
 		`POST /api/organizations/demo/members {"userId":"user-id","roleIds":[]}`,
 		`DELETE /api/organizations/demo/members/member-id `,
+		`GET /api/internal/onboarding/setup-demo-org `,
+		`PUT /api/internal/onboarding/setup-demo-org {"organizationId":"org-id","roleId":"role-id"}`,
+		`DELETE /api/internal/onboarding/setup-demo-org `,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d requests, want %d: %q", len(got), len(want), got)

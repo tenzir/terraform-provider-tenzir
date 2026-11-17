@@ -9,7 +9,8 @@ import (
 )
 
 // TestAccOrganizationAsAdministrator sets an organization up the way Tenzir
-// sets up its demo organization. It needs TENZIR_API_KEY to belong to a
+// sets up its demo organization, and makes it the platform's demo, replacing
+// any other, so it suits only a disposable platform. It needs TENZIR_API_KEY to belong to a
 // platform administrator, which TENZIR_TEST_ADMINISTRATOR confirms.
 func TestAccOrganizationAsAdministrator(t *testing.T) {
 	if os.Getenv("TENZIR_TEST_ADMINISTRATOR") == "" {
@@ -23,6 +24,29 @@ resource "tenzir_organization" "test" {
   name = %q
   plan = "provisioned"
 }
+
+data "tenzir_current_user" "test" {}
+
+resource "tenzir_organization_member" "test" {
+  organization_id = tenzir_organization.test.id
+  user_id         = data.tenzir_current_user.test.id
+  role_ids        = ["org.owner"]
+}
+
+resource "tenzir_role" "visitor" {
+  organization_id = tenzir_organization.test.id
+  label           = "Visitor"
+  color           = "neutral"
+  policy = jsonencode([
+    [{ target = { _tag = "Organization", orgId = tenzir_organization.test.id }, relationships = [] }, ["Organization.read"]],
+  ])
+  depends_on = [tenzir_organization_member.test]
+}
+
+resource "tenzir_demo_organization" "test" {
+  organization_id = tenzir_organization.test.id
+  role_id         = tenzir_role.visitor.id
+}
 `, slug, name)
 	}
 	resource.Test(t, resource.TestCase{
@@ -31,7 +55,11 @@ resource "tenzir_organization" "test" {
 		Steps: []resource.TestStep{
 			{
 				Config: config("Before"),
-				Check:  resource.TestCheckResourceAttr("tenzir_organization.test", "plan", "provisioned"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("tenzir_organization.test", "plan", "provisioned"),
+					resource.TestCheckResourceAttr("tenzir_organization_member.test", "role_ids.#", "1"),
+					resource.TestCheckResourceAttrPair("tenzir_demo_organization.test", "role_id", "tenzir_role.visitor", "id"),
+				),
 			},
 			{
 				ResourceName:      "tenzir_organization.test",

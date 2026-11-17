@@ -133,6 +133,7 @@ func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource
 	return []func() resource.Resource{
 		NewOrganizationResource,
 		NewOrganizationMemberResource,
+		NewDemoOrganizationResource,
 		NewWorkspaceResource,
 		NewRoleResource,
 		NewRoleAssignmentResource,
