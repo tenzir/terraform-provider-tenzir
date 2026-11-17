@@ -1,13 +1,51 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
 	"testing"
 
+	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
+
+func TestOrganizationValidateConfig(t *testing.T) {
+	ctx := context.Background()
+	r := &organizationResource{}
+	var schema fwresource.SchemaResponse
+	r.Schema(ctx, fwresource.SchemaRequest{}, &schema)
+	typ := schema.Schema.Type().TerraformType(ctx)
+	for _, tc := range []struct {
+		name     string
+		id, plan any
+		fails    bool
+	}{
+		{"chooses no ID", nil, nil, false},
+		{"provisions under a chosen ID", "01a1a205-9e4b-76ab-a7ba-cb8a5c23e632", "provisioned", false},
+		{"provisions under a generated ID", nil, "provisioned", false},
+		{"chooses an ID without provisioning", "01a1a205-9e4b-76ab-a7ba-cb8a5c23e632", nil, true},
+		{"chooses a computed ID without provisioning", tftypes.UnknownValue, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := tfsdk.Config{Schema: schema.Schema, Raw: tftypes.NewValue(typ, map[string]tftypes.Value{
+				"id":       tftypes.NewValue(tftypes.String, tc.id),
+				"slug":     tftypes.NewValue(tftypes.String, "demo"),
+				"name":     tftypes.NewValue(tftypes.String, nil),
+				"icon_url": tftypes.NewValue(tftypes.String, nil),
+				"plan":     tftypes.NewValue(tftypes.String, tc.plan),
+			})}
+			var resp fwresource.ValidateConfigResponse
+			r.ValidateConfig(ctx, fwresource.ValidateConfigRequest{Config: config}, &resp)
+			if resp.Diagnostics.HasError() != tc.fails {
+				t.Errorf("got %v", resp.Diagnostics)
+			}
+		})
+	}
+}
 
 // TestAccOrganizationAsAdministrator sets an organization up the way Tenzir
 // sets up its demo organization. It needs TENZIR_API_KEY to belong to a
@@ -24,15 +62,7 @@ resource "tenzir_organization" "test" {
   id   = %q
   slug = %q
   name = %q
-}
-
-resource "tenzir_role" "visitor" {
-  organization_id = tenzir_organization.test.id
-  label           = "Visitor"
-  color           = "neutral"
-  policy = jsonencode([
-    [{ target = { _tag = "Organization", orgId = tenzir_organization.test.id }, relationships = [] }, ["Organization.read"]],
-  ])
+  plan = "provisioned"
 }
 `, id, slug, name)
 	}

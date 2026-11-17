@@ -27,6 +27,7 @@ type Organization struct {
 	CreatedBy   *string `json:"createdBy,omitempty"`
 	CreatedAt   string  `json:"createdAt"`
 	MemberCount int64   `json:"memberCount"`
+	Edition     string  `json:"edition"`
 }
 
 // NewOrganization is what creating an organization takes. Without a name,
@@ -98,8 +99,8 @@ func (c *Client) CreateOrganization(ctx context.Context, org NewOrganization) (*
 	return &out, nil
 }
 
-// ProvisionOrganization creates an organization under the given ID with the
-// caller as its owner. Only platform administrators may.
+// ProvisionOrganization creates an organization under the given ID, on the
+// provisioned plan and without members. Only platform administrators may.
 func (c *Client) ProvisionOrganization(ctx context.Context, id string, org NewOrganization) (*Organization, error) {
 	var out Organization
 	if err := c.call(ctx, opProvisionOrganization, []string{id}, nil, org, &out); err != nil {

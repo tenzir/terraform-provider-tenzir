@@ -153,10 +153,14 @@ refuses a colon in a branch name, so the first colon ends the branch.
    `POST …/tracker/update` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
 6. Done for administrators: `PUT /organizations/:id` creates an organization
-   under a fixed ID with the caller as its owner, which `tenzir_organization`
-   with `id` needs. Only
-   `sys.admin` holds it. Users are not managed by Terraform: they come and go,
-   and join an organization by invitation.
+   under a fixed ID, without members, on the provisioned plan, which bills
+   nothing and which nobody in the organization can change. Only `sys.admin`
+   holds it. `tenzir_organization` with `plan = "provisioned"` uses it, with
+   `id` or a UUID the provider generates; without `plan`, the provider creates
+   the organization as anyone would. Changing `plan` replaces the
+   organization, because the platform moves no organization onto or off the
+   provisioned plan. Users are not managed by Terraform: they come and go, and
+   join an organization by invitation.
 7. Done: `POST …/branches/:branch/commits` commits changes against an
    expected head, without a draft, under `WorkspaceBranch.commitChanges`,
    which branch protection governs. A commit names a

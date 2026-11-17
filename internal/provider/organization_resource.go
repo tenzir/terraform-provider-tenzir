@@ -3,20 +3,27 @@ package provider
 import (
 	"context"
 
+	"github.com/google/uuid"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
 var (
-	_ resource.ResourceWithConfigure   = &organizationResource{}
-	_ resource.ResourceWithImportState = &organizationResource{}
+	_ resource.ResourceWithConfigure      = &organizationResource{}
+	_ resource.ResourceWithImportState    = &organizationResource{}
+	_ resource.ResourceWithValidateConfig = &organizationResource{}
 )
+
+// provisionedPlan is the plan an administrator sets an organization up on.
+const provisionedPlan = "provisioned"
 
 func NewOrganizationResource() resource.Resource {
 	return &organizationResource{}
@@ -31,6 +38,7 @@ type organizationResourceModel struct {
 	Slug    types.String `tfsdk:"slug"`
 	Name    types.String `tfsdk:"name"`
 	IconURL types.String `tfsdk:"icon_url"`
+	Plan    types.String `tfsdk:"plan"`
 }
 
 func (r *organizationResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -39,17 +47,22 @@ func (r *organizationResource) Metadata(_ context.Context, req resource.Metadata
 
 func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "An organization. The caller becomes its first owner.\n\n" +
-			"Without `id`, the platform picks the ID; this needs `Root.createOrganization`. With `id`, the platform " +
-			"creates the organization under that ID; this needs `Root.provisionOrganization`, which only platform " +
+		MarkdownDescription: "An organization.\n\n" +
+			"Without `plan`, the platform picks the ID and makes the caller the first owner; this needs " +
+			"`Root.createOrganization`, and Terraform leaves the organization's plan to its owners.\n\n" +
+			"With `plan = \"provisioned\"`, a platform administrator sets the organization up, such as Tenzir's " +
+			"demo organization: the platform creates it under `id`, or under an ID the provider generates, on the " +
+			"provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the " +
+			"organization can change. It has no members; add the account that manages it as its owner with " +
+			"`tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform " +
 			"administrators hold.\n\n" +
 			"Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses " +
 			"to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the " +
 			"slug of an organization on Community.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				MarkdownDescription: "The organization ID, a UUID. Set it to choose the ID, which only platform " +
-					"administrators may; changing it replaces the organization.",
+				MarkdownDescription: "The organization ID, a UUID. Only with `plan = \"provisioned\"` can it be " +
+					"set, to choose the ID; changing it replaces the organization.",
 				Optional: true,
 				Computed: true,
 				PlanModifiers: []planmodifier.String{
@@ -72,12 +85,34 @@ func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaReques
 				MarkdownDescription: "The URL of the organization icon.",
 				Optional:            true,
 			},
+			"plan": schema.StringAttribute{
+				MarkdownDescription: "`provisioned` to set the organization up as a platform administrator; the " +
+					"only value. Unset, Terraform does not manage the plan. The platform cannot move an organization " +
+					"onto or off the provisioned plan, so changing this replaces the organization.",
+				Optional: true,
+				Validators: []validator.String{
+					stringvalidator.OneOf(provisionedPlan),
+				},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
 		},
 	}
 }
 
 func (r *organizationResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
+}
+
+func (r *organizationResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config organizationResourceModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() || config.Plan.IsUnknown() {
+		return
+	}
+	if !config.ID.IsNull() && config.Plan.ValueString() != provisionedPlan {
+		resp.Diagnostics.AddAttributeError(path.Root("id"), "Cannot choose the organization ID",
+			"Only an organization set up with plan = \"provisioned\" can have a chosen ID.")
+	}
 }
 
 func (m *organizationResourceModel) set(org *client.Organization) {
@@ -100,8 +135,12 @@ func (r *organizationResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	var org *client.Organization
 	var err error
-	if id := stringPointer(plan.ID); id != nil {
-		org, err = r.client.ProvisionOrganization(ctx, *id, body)
+	if plan.Plan.ValueString() == provisionedPlan {
+		id := plan.ID.ValueString()
+		if plan.ID.IsUnknown() || plan.ID.IsNull() {
+			id = uuid.NewString()
+		}
+		org, err = r.client.ProvisionOrganization(ctx, id, body)
 	} else {
 		org, err = r.client.CreateOrganization(ctx, body)
 	}
@@ -171,7 +210,9 @@ func (r *organizationResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 }
 
-// ImportState takes an ID or a slug, and stores the ID.
+// ImportState takes an ID or a slug, and stores the ID. Read leaves the plan
+// as configured, because a Sovereign installation reports every organization
+// as sovereign, so only an import learns it from the platform.
 func (r *organizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	org, err := r.client.ReadOrganization(ctx, req.ID)
 	if err != nil {
@@ -179,4 +220,7 @@ func (r *organizationResource) ImportState(ctx context.Context, req resource.Imp
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), org.ID)...)
+	if org.Edition == provisionedPlan {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("plan"), provisionedPlan)...)
+	}
 }
