@@ -4,10 +4,10 @@ import "context"
 
 var (
 	opCreateIngestEndpoint = op("POST", "/organizations/{org}/ingest-endpoints")
-	opReadIngestEndpoint   = op("GET", "/ingest-endpoints/{endpointId}")
-	opReadIngestToken      = op("GET", "/ingest-endpoints/{endpointId}/token")
-	opUpdateIngestEndpoint = op("POST", "/ingest-endpoints/{endpointId}/update")
-	opDeleteIngestEndpoint = op("DELETE", "/ingest-endpoints/{endpointId}")
+	opReadIngestEndpoint   = op("GET", "/organizations/{org}/ingest-endpoints/{endpointId}")
+	opReadIngestToken      = op("GET", "/organizations/{org}/ingest-endpoints/{endpointId}/token")
+	opUpdateIngestEndpoint = op("POST", "/organizations/{org}/ingest-endpoints/{endpointId}/update")
+	opDeleteIngestEndpoint = op("DELETE", "/organizations/{org}/ingest-endpoints/{endpointId}")
 )
 
 // IngestEndpoint is a URL that turns every request into one event.
@@ -51,35 +51,35 @@ func (c *Client) CreateIngestEndpoint(ctx context.Context, org string, ep NewIng
 }
 
 // ReadIngestEndpoint reads an endpoint by id.
-func (c *Client) ReadIngestEndpoint(ctx context.Context, id string) (*IngestEndpoint, error) {
+func (c *Client) ReadIngestEndpoint(ctx context.Context, org, id string) (*IngestEndpoint, error) {
 	var out IngestEndpoint
-	if err := c.call(ctx, opReadIngestEndpoint, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opReadIngestEndpoint, []string{org, id}, nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // ReadIngestToken reads an endpoint's current token.
-func (c *Client) ReadIngestToken(ctx context.Context, id string) (string, error) {
+func (c *Client) ReadIngestToken(ctx context.Context, org, id string) (string, error) {
 	var out struct {
 		Token string `json:"token"`
 	}
-	if err := c.call(ctx, opReadIngestToken, []string{id}, nil, nil, &out); err != nil {
+	if err := c.call(ctx, opReadIngestToken, []string{org, id}, nil, nil, &out); err != nil {
 		return "", err
 	}
 	return out.Token, nil
 }
 
 // UpdateIngestEndpoint changes an endpoint's description or readers.
-func (c *Client) UpdateIngestEndpoint(ctx context.Context, id string, patch IngestEndpointPatch) (*IngestEndpoint, error) {
+func (c *Client) UpdateIngestEndpoint(ctx context.Context, org, id string, patch IngestEndpointPatch) (*IngestEndpoint, error) {
 	var out IngestEndpoint
-	if err := c.call(ctx, opUpdateIngestEndpoint, []string{id}, nil, patch, &out); err != nil {
+	if err := c.call(ctx, opUpdateIngestEndpoint, []string{org, id}, nil, patch, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
 }
 
 // DeleteIngestEndpoint deletes an endpoint with its topic and buffered events.
-func (c *Client) DeleteIngestEndpoint(ctx context.Context, id string) error {
-	return c.call(ctx, opDeleteIngestEndpoint, []string{id}, nil, nil, nil)
+func (c *Client) DeleteIngestEndpoint(ctx context.Context, org, id string) error {
+	return c.call(ctx, opDeleteIngestEndpoint, []string{org, id}, nil, nil, nil)
 }

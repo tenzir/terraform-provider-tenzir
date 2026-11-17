@@ -145,7 +145,12 @@ func (r *ingestEndpointResource) Read(ctx context.Context, req resource.ReadRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	ep, err := r.client.ReadIngestEndpoint(ctx, state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ep, err := r.client.ReadIngestEndpoint(ctx, ids.Organization, state.ID.ValueString())
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -154,7 +159,7 @@ func (r *ingestEndpointResource) Read(ctx context.Context, req resource.ReadRequ
 		resp.Diagnostics.AddError("Cannot read the ingest endpoint", err.Error())
 		return
 	}
-	token, err := r.client.ReadIngestToken(ctx, ep.ID)
+	token, err := r.client.ReadIngestToken(ctx, ids.Organization, ep.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot read the ingest endpoint's token", err.Error())
 		return
@@ -162,9 +167,6 @@ func (r *ingestEndpointResource) Read(ctx context.Context, req resource.ReadRequ
 	if err := state.set(ctx, ep); err != nil {
 		resp.Diagnostics.AddError("Cannot read the endpoint's readers", err.Error())
 		return
-	}
-	if state.OrganizationID.IsNull() {
-		state.OrganizationID = types.StringValue(ep.OrgID)
 	}
 	state.Token = types.StringValue(token)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
@@ -182,7 +184,12 @@ func (r *ingestEndpointResource) Update(ctx context.Context, req resource.Update
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	ep, err := r.client.UpdateIngestEndpoint(ctx, state.ID.ValueString(), client.IngestEndpointPatch{
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ep, err := r.client.UpdateIngestEndpoint(ctx, ids.Organization, state.ID.ValueString(), client.IngestEndpointPatch{
 		Description: stringPointer(plan.Description),
 		ReadableBy:  &readers,
 	})
@@ -202,13 +209,25 @@ func (r *ingestEndpointResource) Delete(ctx context.Context, req resource.Delete
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.DeleteIngestEndpoint(ctx, state.ID.ValueString())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteIngestEndpoint(ctx, ids.Organization, state.ID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot delete the ingest endpoint", err.Error())
 	}
 }
 
-// ImportState takes the endpoint ID; Read fills in the organization ID.
+// ImportState takes "<organization>/<endpoint>", the organization an ID or
+// a slug.
 func (r *ingestEndpointResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	parts, err := splitImportID(req.ID, "organization", "endpoint")
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, organizationPath, parts[0])...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), parts[1])...)
 }

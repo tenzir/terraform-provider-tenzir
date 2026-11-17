@@ -30,6 +30,7 @@ resource "tenzir_ingest_endpoint" "test" {
 			{
 				ResourceName:      "tenzir_ingest_endpoint.test",
 				ImportState:       true,
+				ImportStateIdFunc: importID("tenzir_ingest_endpoint.test", "organization_id", "id"),
 				ImportStateVerify: true,
 			},
 			{
