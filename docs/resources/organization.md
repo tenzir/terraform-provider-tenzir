@@ -3,31 +3,31 @@
 page_title: "tenzir_organization Resource - tenzir"
 subcategory: ""
 description: |-
-  An organization.
-  Without id, the platform picks the ID and makes the caller the organization's first owner; this needs Root.createOrganization. With id, the platform creates the organization under that ID and without any members; this needs Root.provisionOrganization, which only platform administrators hold, and they manage the organization through that global role.
+  An organization. The caller becomes its first owner.
+  Without id, the platform picks the ID; this needs Root.createOrganization. With id, the platform creates the organization under that ID; this needs Root.provisionOrganization, which only platform administrators hold.
   Changing it needs Organization.update, and deleting it Organization.delete. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 ---
 
 # tenzir_organization (Resource)
 
-An organization.
+An organization. The caller becomes its first owner.
 
-Without `id`, the platform picks the ID and makes the caller the organization's first owner; this needs `Root.createOrganization`. With `id`, the platform creates the organization under that ID and without any members; this needs `Root.provisionOrganization`, which only platform administrators hold, and they manage the organization through that global role.
+Without `id`, the platform picks the ID; this needs `Root.createOrganization`. With `id`, the platform creates the organization under that ID; this needs `Root.provisionOrganization`, which only platform administrators hold.
 
 Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 
 ## Example Usage
 
 ```terraform
-# A platform administrator sets up an organization under a fixed ID, without
-# becoming a member of it.
+# A platform administrator sets up an organization under a fixed ID, and
+# becomes its first owner.
 resource "tenzir_organization" "demo" {
   id   = "01a1a205-9e4b-76ab-a7ba-cb8a5c23e632"
   slug = "demo"
   name = "Demo"
 }
 
-# Anyone else omits the ID, and becomes the organization's first owner.
+# Anyone else omits the ID.
 resource "tenzir_organization" "acme" {
   slug = "acme"
 }

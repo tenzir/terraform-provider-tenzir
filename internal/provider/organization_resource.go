@@ -39,11 +39,10 @@ func (r *organizationResource) Metadata(_ context.Context, req resource.Metadata
 
 func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "An organization.\n\n" +
-			"Without `id`, the platform picks the ID and makes the caller the organization's first owner; " +
-			"this needs `Root.createOrganization`. With `id`, the platform creates the organization under that ID " +
-			"and without any members; this needs `Root.provisionOrganization`, which only platform administrators " +
-			"hold, and they manage the organization through that global role.\n\n" +
+		MarkdownDescription: "An organization. The caller becomes its first owner.\n\n" +
+			"Without `id`, the platform picks the ID; this needs `Root.createOrganization`. With `id`, the platform " +
+			"creates the organization under that ID; this needs `Root.provisionOrganization`, which only platform " +
+			"administrators hold.\n\n" +
 			"Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses " +
 			"to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the " +
 			"slug of an organization on Community.",

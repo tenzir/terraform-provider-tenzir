@@ -109,8 +109,8 @@ func (c *Client) CreateOrganization(ctx context.Context, org NewOrganization) (*
 	return &out, nil
 }
 
-// ProvisionOrganization creates an organization under the given ID, without
-// members. Only platform administrators may.
+// ProvisionOrganization creates an organization under the given ID with the
+// caller as its owner. Only platform administrators may.
 func (c *Client) ProvisionOrganization(ctx context.Context, id string, org NewOrganization) (*Organization, error) {
 	var out Organization
 	if err := c.call(ctx, opProvisionOrganization, []string{id}, nil, org, &out); err != nil {
