@@ -149,7 +149,7 @@ func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.Data
 	return []func() datasource.DataSource{
 		NewOrganizationDataSource,
 		NewWorkspaceDataSource,
-		NewPeopleDataSource,
+		NewMembersDataSource,
 		NewRolesDataSource,
 		NewDeploymentTypesDataSource,
 		NewDeploymentImagesDataSource,

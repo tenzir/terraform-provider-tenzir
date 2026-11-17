@@ -4,29 +4,29 @@ page_title: "tenzir_role_assignment Resource - tenzir"
 subcategory: ""
 description: |-
   Assigns a built-in or custom role to a member of an organization. Removing the resource revokes the role but keeps the membership and other roles.
-  Needs OrganizationRole.assignToUser and OrganizationRole.revokeFromUser on the role, and Organization.listPeople.
+  Needs OrganizationRole.assignToMember and OrganizationRole.revokeFromMember on the role, and Organization.listMembers.
 ---
 
 # tenzir_role_assignment (Resource)
 
 Assigns a built-in or custom role to a member of an organization. Removing the resource revokes the role but keeps the membership and other roles.
 
-Needs `OrganizationRole.assignToUser` and `OrganizationRole.revokeFromUser` on the role, and `Organization.listPeople`.
+Needs `OrganizationRole.assignToMember` and `OrganizationRole.revokeFromMember` on the role, and `Organization.listMembers`.
 
 ## Example Usage
 
 ```terraform
-data "tenzir_people" "acme" {
+data "tenzir_members" "acme" {
   organization_id = data.tenzir_organization.acme.id
 }
 
 locals {
-  alice = one([for p in data.tenzir_people.acme.people : p.user_id if p.email == "alice@example.com"])
+  alice = one([for m in data.tenzir_members.acme.members : m.id if m.email == "alice@example.com"])
 }
 
 resource "tenzir_role_assignment" "alice_soc_reader" {
   organization_id = data.tenzir_organization.acme.id
-  user_id         = local.alice
+  member_id       = local.alice
   role_id         = tenzir_role.soc_reader.id
 }
 ```
@@ -36,13 +36,13 @@ resource "tenzir_role_assignment" "alice_soc_reader" {
 
 ### Required
 
+- `member_id` (String) The ID of a member, which is not its user's ID; see the `tenzir_members` data source.
 - `organization_id` (String) The ID or slug of the organization.
-- `role_id` (String) A built-in role ID such as `org.admin`, or a custom role's ID.
-- `user_id` (String) The ID of a member; see the `tenzir_people` data source.
+- `role_id` (String) A built-in role ID, `org.owner` or `org.member`, or a custom role's ID.
 
 ### Read-Only
 
-- `id` (String) `<organization_id>/<user_id>/<role_id>`.
+- `id` (String) `<organization_id>/<member_id>/<role_id>`.
 
 ## Import
 
@@ -51,6 +51,6 @@ Import is supported using the following syntax:
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-# <organization ID>/<user ID>/<role ID>
-terraform import tenzir_role_assignment.alice_soc_reader 01a1a205-9e4b-76ab-a7ba-cb8a5c23e632/01a1a205-9e50-7d13-bac1-3f47f9cc4297/org.viewer
+# <organization ID>/<member ID>/<role ID>
+terraform import tenzir_role_assignment.alice_soc_reader 01a1a205-9e4b-76ab-a7ba-cb8a5c23e632/01a1a205-9e50-7d13-bac1-3f47f9cc4297/org.member
 ```

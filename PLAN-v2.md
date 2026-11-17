@@ -78,12 +78,12 @@ compares parents by ID:
 |---|---|---|
 | `tenzir_workspace` | `…/workspaces`, `…/update`, `DELETE` | Delete fails while deployments exist; surface the API's error |
 | `tenzir_role` | `…/roles`, `…/update`, `DELETE` | `policy` is a JSON string with semantic equality, because the server normalizes policies |
-| `tenzir_role_assignment` | `PUT`/`DELETE …/people/:user/roles/:role` | Create and delete only; both are idempotent |
+| `tenzir_role_assignment` | `POST …/members/:member/roles`, `DELETE …/members/:member/roles/:role` | Create and delete only; both are idempotent |
 | `tenzir_api_key` | `POST /users/:user/api-keys`, `revoke`, `set-policy`, `rename` | `key` is only known at create time; delete revokes |
 | `tenzir_secret` | org, workspace and deployment scopes | One resource with `organization_id`, `workspace_id` and `deployment_id`; the most specific one sets the scope. `value` is write-only (Terraform 1.11+), so `value_version` triggers a rewrite after it changes; a `version` that moved outside Terraform plans a rewrite too |
 | `tenzir_ingest_endpoint` | `…/ingest-endpoints` | `name` forces replacement; `token` is sensitive and readable |
 
-Data sources: `tenzir_organization`, `tenzir_workspace`, `tenzir_people`,
+Data sources: `tenzir_organization`, `tenzir_workspace`, `tenzir_members`,
 `tenzir_roles`, `tenzir_deployment_types`, `tenzir_deployment_images`.
 
 `tenzir_organization` was only a data source in phase 1. Creating an

@@ -40,5 +40,5 @@ Read-Only:
 
 - `builtin` (Boolean) Whether the platform defines the role.
 - `color` (String) The display color.
-- `id` (String) The role ID, such as `org.admin` for a built-in role.
+- `id` (String) The role ID, such as `org.owner` for a built-in role.
 - `label` (String) The display name.

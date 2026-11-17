@@ -16,12 +16,20 @@ type UserSummary struct {
 	Tombed bool    `json:"tombed"`
 }
 
+// Invitation is an invitation to an organization, without its secret.
+type Invitation struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	CreatedBy string `json:"createdBy"`
+}
+
 // Member is a membership of an organization: a user, a pending invitation,
 // or both, with the roles assigned to it.
 type Member struct {
 	ID            string        `json:"id"`
 	ProvisionedBy string        `json:"provisionedBy"`
 	User          *UserSummary  `json:"user,omitempty"`
+	Invitation    *Invitation   `json:"invitation,omitempty"`
 	Roles         []RoleSummary `json:"roles"`
 }
 

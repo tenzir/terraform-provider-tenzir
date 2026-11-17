@@ -67,7 +67,7 @@ one under a fixed ID. The key's policy must name that permission too,
 ### Data sources
 
 - `tenzir_organization` and `tenzir_workspace`
-- `tenzir_people` and `tenzir_roles`
+- `tenzir_members` and `tenzir_roles`
 - `tenzir_deployment`, `tenzir_deployment_types` and `tenzir_deployment_images`
 
 See [`docs/`](docs/) for every attribute, and [`examples/`](examples/).

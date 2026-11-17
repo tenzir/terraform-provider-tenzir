@@ -49,7 +49,7 @@ func (d *rolesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 				Computed:            true,
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
-						"id":      schema.StringAttribute{Computed: true, MarkdownDescription: "The role ID, such as `org.admin` for a built-in role."},
+						"id":      schema.StringAttribute{Computed: true, MarkdownDescription: "The role ID, such as `org.owner` for a built-in role."},
 						"label":   schema.StringAttribute{Computed: true, MarkdownDescription: "The display name."},
 						"color":   schema.StringAttribute{Computed: true, MarkdownDescription: "The display color."},
 						"builtin": schema.BoolAttribute{Computed: true, MarkdownDescription: "Whether the platform defines the role."},

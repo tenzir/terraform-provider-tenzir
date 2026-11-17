@@ -50,7 +50,7 @@ resource "tenzir_role" "test" {
 func TestAccRoleAssignment(t *testing.T) {
 	config := func(role string) string {
 		return testAccOrganization() + fmt.Sprintf(`
-data "tenzir_people" "test" {
+data "tenzir_members" "test" {
   organization_id = data.tenzir_organization.test.id
 }
 
@@ -62,7 +62,7 @@ resource "tenzir_role" "test" {
 
 resource "tenzir_role_assignment" "test" {
   organization_id = data.tenzir_organization.test.id
-  user_id         = data.tenzir_people.test.people[0].user_id
+  member_id       = data.tenzir_members.test.members[0].id
   role_id         = %s
 }
 `, role)
@@ -78,8 +78,8 @@ resource "tenzir_role_assignment" "test" {
 				ImportStateVerify: true,
 			},
 			{
-				Config: config(`"org.viewer"`),
-				Check:  resource.TestCheckResourceAttr("tenzir_role_assignment.test", "role_id", "org.viewer"),
+				Config: config(`"org.member"`),
+				Check:  resource.TestCheckResourceAttr("tenzir_role_assignment.test", "role_id", "org.member"),
 			},
 		},
 	})

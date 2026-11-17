@@ -11,14 +11,11 @@ var (
 	opProvisionOrganization = op("PUT", "/organizations/{org}")
 	opUpdateOrganization    = op("POST", "/organizations/{org}/update")
 	opDeleteOrganization    = op("DELETE", "/organizations/{org}")
-	opListPeople            = op("GET", "/organizations/{org}/people")
 	opListRoles             = op("GET", "/organizations/{org}/roles")
 	opCreateRole            = op("POST", "/organizations/{org}/roles")
 	opReadRole              = op("GET", "/organizations/{org}/roles/{roleId}")
 	opUpdateRole            = op("POST", "/organizations/{org}/roles/{roleId}/update")
 	opDeleteRole            = op("DELETE", "/organizations/{org}/roles/{roleId}")
-	opAssignMemberRole      = op("PUT", "/organizations/{org}/people/{userId}/roles/{roleId}")
-	opRevokeMemberRole      = op("DELETE", "/organizations/{org}/people/{userId}/roles/{roleId}")
 )
 
 // Organization is an organization with the number of its members.
@@ -50,14 +47,6 @@ type OrganizationPatch struct {
 
 func (p OrganizationPatch) MarshalJSON() ([]byte, error) {
 	return json.Marshal(WorkspacePatch(p))
-}
-
-// Person is an organization member and the roles assigned to them.
-type Person struct {
-	UserID string        `json:"userId"`
-	Name   *string       `json:"name,omitempty"`
-	Email  *string       `json:"email,omitempty"`
-	Roles  []RoleSummary `json:"roles"`
 }
 
 // RoleSummary is a role without its policy. Tag is Builtin or Custom.
@@ -133,15 +122,6 @@ func (c *Client) DeleteOrganization(ctx context.Context, org string) error {
 	return c.call(ctx, opDeleteOrganization, []string{org}, nil, nil, nil)
 }
 
-// ListPeople lists the members of an organization.
-func (c *Client) ListPeople(ctx context.Context, org string) ([]Person, error) {
-	var out []Person
-	if err := c.call(ctx, opListPeople, []string{org}, nil, nil, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ListRoles lists the built-in and custom roles of an organization.
 func (c *Client) ListRoles(ctx context.Context, org string) ([]RoleSummary, error) {
 	var out []RoleSummary
@@ -181,14 +161,4 @@ func (c *Client) UpdateRole(ctx context.Context, org, roleID string, patch RoleP
 // DeleteRole deletes a custom role and all its assignments.
 func (c *Client) DeleteRole(ctx context.Context, org, roleID string) error {
 	return c.call(ctx, opDeleteRole, []string{org, roleID}, nil, nil, nil)
-}
-
-// AssignMemberRole assigns a role to a member; an existing assignment stays.
-func (c *Client) AssignMemberRole(ctx context.Context, org, userID, roleID string) error {
-	return c.call(ctx, opAssignMemberRole, []string{org, userID, roleID}, nil, nil, nil)
-}
-
-// RevokeMemberRole revokes a role from a member; an absent one stays absent.
-func (c *Client) RevokeMemberRole(ctx context.Context, org, userID, roleID string) error {
-	return c.call(ctx, opRevokeMemberRole, []string{org, userID, roleID}, nil, nil, nil)
 }

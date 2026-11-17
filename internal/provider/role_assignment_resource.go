@@ -29,7 +29,7 @@ type roleAssignmentResource struct {
 type roleAssignmentModel struct {
 	ID             types.String `tfsdk:"id"`
 	OrganizationID types.String `tfsdk:"organization_id"`
-	UserID         types.String `tfsdk:"user_id"`
+	MemberID       types.String `tfsdk:"member_id"`
 	RoleID         types.String `tfsdk:"role_id"`
 }
 
@@ -42,11 +42,11 @@ func (r *roleAssignmentResource) Schema(_ context.Context, _ resource.SchemaRequ
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Assigns a built-in or custom role to a member of an organization. Removing the " +
 			"resource revokes the role but keeps the membership and other roles.\n\n" +
-			"Needs `OrganizationRole.assignToUser` and `OrganizationRole.revokeFromUser` on the role, and " +
-			"`Organization.listPeople`.",
+			"Needs `OrganizationRole.assignToMember` and `OrganizationRole.revokeFromMember` on the role, and " +
+			"`Organization.listMembers`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				MarkdownDescription: "`<organization_id>/<user_id>/<role_id>`.",
+				MarkdownDescription: "`<organization_id>/<member_id>/<role_id>`.",
 				Computed:            true,
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
@@ -54,13 +54,13 @@ func (r *roleAssignmentResource) Schema(_ context.Context, _ resource.SchemaRequ
 				MarkdownDescription: "The ID or slug of the organization.",
 				Required:            true,
 			},
-			"user_id": schema.StringAttribute{
-				MarkdownDescription: "The ID of a member; see the `tenzir_people` data source.",
+			"member_id": schema.StringAttribute{
+				MarkdownDescription: "The ID of a member, which is not its user's ID; see the `tenzir_members` data source.",
 				Required:            true,
 				PlanModifiers:       replace,
 			},
 			"role_id": schema.StringAttribute{
-				MarkdownDescription: "A built-in role ID such as `org.admin`, or a custom role's ID.",
+				MarkdownDescription: "A built-in role ID, `org.owner` or `org.member`, or a custom role's ID.",
 				Required:            true,
 				PlanModifiers:       replace,
 			},
@@ -86,12 +86,12 @@ func (r *roleAssignmentResource) Create(ctx context.Context, req resource.Create
 	if !ok {
 		return
 	}
-	err := r.client.AssignMemberRole(ctx, ids.Organization, plan.UserID.ValueString(), plan.RoleID.ValueString())
+	err := r.client.AssignRoleTo(ctx, ids.Organization, plan.MemberID.ValueString(), plan.RoleID.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot assign the role", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(plan.OrganizationID.ValueString() + "/" + plan.UserID.ValueString() + "/" + plan.RoleID.ValueString())
+	plan.ID = types.StringValue(plan.OrganizationID.ValueString() + "/" + plan.MemberID.ValueString() + "/" + plan.RoleID.ValueString())
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
@@ -106,7 +106,7 @@ func (r *roleAssignmentResource) Read(ctx context.Context, req resource.ReadRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	people, err := r.client.ListPeople(ctx, ids.Organization)
+	members, err := r.client.ListMembers(ctx, ids.Organization)
 	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
@@ -115,11 +115,11 @@ func (r *roleAssignmentResource) Read(ctx context.Context, req resource.ReadRequ
 		resp.Diagnostics.AddError("Cannot read the organization's members", err.Error())
 		return
 	}
-	for _, person := range people {
-		if person.UserID != state.UserID.ValueString() {
+	for _, member := range members {
+		if member.ID != state.MemberID.ValueString() {
 			continue
 		}
-		for _, role := range person.Roles {
+		for _, role := range member.Roles {
 			if role.ID == state.RoleID.ValueString() {
 				resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 				return
@@ -144,15 +144,15 @@ func (r *roleAssignmentResource) Delete(ctx context.Context, req resource.Delete
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.client.RevokeMemberRole(ctx, ids.Organization, state.UserID.ValueString(), state.RoleID.ValueString())
+	err := r.client.RevokeRoleFrom(ctx, ids.Organization, state.MemberID.ValueString(), state.RoleID.ValueString())
 	if err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Cannot revoke the role", err.Error())
 	}
 }
 
-// ImportState takes "<organization>/<user>/<role>".
+// ImportState takes "<organization>/<member>/<role>".
 func (r *roleAssignmentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	parts, err := splitImportID(req.ID, "organization", "user", "role")
+	parts, err := splitImportID(req.ID, "organization", "member", "role")
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid import ID", err.Error())
 		return
@@ -160,7 +160,7 @@ func (r *roleAssignmentResource) ImportState(ctx context.Context, req resource.I
 	resp.Diagnostics.Append(resp.State.Set(ctx, &roleAssignmentModel{
 		ID:             types.StringValue(req.ID),
 		OrganizationID: types.StringValue(parts[0]),
-		UserID:         types.StringValue(parts[1]),
+		MemberID:       types.StringValue(parts[1]),
 		RoleID:         types.StringValue(parts[2]),
 	})...)
 }
