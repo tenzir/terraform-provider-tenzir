@@ -4,8 +4,8 @@ page_title: "tenzir_organization Resource - tenzir"
 subcategory: ""
 description: |-
   An organization.
-  Without plan, the platform picks the ID and makes the caller the first owner; this needs Root.createOrganization, and Terraform leaves the organization's plan to its owners.
-  With plan = "provisioned", a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it under id, or under an ID the provider generates, on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with tenzir_organization_member. This needs Root.provisionOrganization, which only platform administrators hold.
+  Without plan, the caller becomes the first owner; this needs Root.createOrganization, and Terraform leaves the organization's plan to its owners.
+  With plan = "provisioned", a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with tenzir_organization_member. This needs Root.provisionOrganization, which only platform administrators hold.
   Changing it needs Organization.update, and deleting it Organization.delete. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 ---
 
@@ -13,27 +13,25 @@ description: |-
 
 An organization.
 
-Without `plan`, the platform picks the ID and makes the caller the first owner; this needs `Root.createOrganization`, and Terraform leaves the organization's plan to its owners.
+Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and Terraform leaves the organization's plan to its owners.
 
-With `plan = "provisioned"`, a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it under `id`, or under an ID the provider generates, on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with `tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform administrators hold.
+With `plan = "provisioned"`, a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with `tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform administrators hold.
 
 Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 
 ## Example Usage
 
 ```terraform
-# A platform administrator sets up an organization on the provisioned plan,
-# under a fixed ID; without `id`, the provider generates one. It starts
-# without members: see tenzir_organization_member for making the managing
-# account its owner.
+# A platform administrator sets up an organization on the provisioned plan.
+# It starts without members: see tenzir_organization_member for making the
+# managing account its owner.
 resource "tenzir_organization" "demo" {
-  id   = "01a1a205-9e4b-76ab-a7ba-cb8a5c23e632"
   slug = "demo"
   name = "Demo"
   plan = "provisioned"
 }
 
-# Anyone else omits the ID and the plan, and becomes the first owner.
+# Anyone else omits the plan, and becomes the first owner.
 resource "tenzir_organization" "acme" {
   slug = "acme"
 }
@@ -49,9 +47,12 @@ resource "tenzir_organization" "acme" {
 ### Optional
 
 - `icon_url` (String) The URL of the organization icon.
-- `id` (String) The organization ID, a UUID. Only with `plan = "provisioned"` can it be set, to choose the ID; changing it replaces the organization.
 - `name` (String) The display name. Defaults to the slug.
 - `plan` (String) `provisioned` to set the organization up as a platform administrator; the only value. Unset, Terraform does not manage the plan. The platform cannot move an organization onto or off the provisioned plan, so changing this replaces the organization.
+
+### Read-Only
+
+- `id` (String) The organization ID, which the platform picks.
 
 ## Import
 

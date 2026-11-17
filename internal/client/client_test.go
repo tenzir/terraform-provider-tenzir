@@ -141,10 +141,10 @@ func TestProvisionOrganization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ProvisionOrganization(context.Background(), "org-id", NewOrganization{Slug: "demo"}); err != nil {
+	if _, err := c.ProvisionOrganization(context.Background(), NewOrganization{Slug: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := `PUT /api/organizations/org-id {"slug":"demo"}`; got != want {
+	if want := `POST /api/organizations/provision {"slug":"demo"}`; got != want {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }

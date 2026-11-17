@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -17,9 +16,8 @@ import (
 )
 
 var (
-	_ resource.ResourceWithConfigure      = &organizationResource{}
-	_ resource.ResourceWithImportState    = &organizationResource{}
-	_ resource.ResourceWithValidateConfig = &organizationResource{}
+	_ resource.ResourceWithConfigure   = &organizationResource{}
+	_ resource.ResourceWithImportState = &organizationResource{}
 )
 
 // provisionedPlan is the plan an administrator sets an organization up on.
@@ -48,11 +46,10 @@ func (r *organizationResource) Metadata(_ context.Context, req resource.Metadata
 func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "An organization.\n\n" +
-			"Without `plan`, the platform picks the ID and makes the caller the first owner; this needs " +
-			"`Root.createOrganization`, and Terraform leaves the organization's plan to its owners.\n\n" +
+			"Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and " +
+			"Terraform leaves the organization's plan to its owners.\n\n" +
 			"With `plan = \"provisioned\"`, a platform administrator sets the organization up, such as Tenzir's " +
-			"demo organization: the platform creates it under `id`, or under an ID the provider generates, on the " +
-			"provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the " +
+			"demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the " +
 			"organization can change. It has no members; add the account that manages it as its owner with " +
 			"`tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform " +
 			"administrators hold.\n\n" +
@@ -61,14 +58,9 @@ func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaReques
 			"slug of an organization on Community.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				MarkdownDescription: "The organization ID, a UUID. Only with `plan = \"provisioned\"` can it be " +
-					"set, to choose the ID; changing it replaces the organization.",
-				Optional: true,
-				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-					stringplanmodifier.RequiresReplaceIfConfigured(),
-				},
+				MarkdownDescription: "The organization ID, which the platform picks.",
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"slug": schema.StringAttribute{
 				MarkdownDescription: "The organization's name in URLs: lowercase letters, digits and single dashes, " +
@@ -103,18 +95,6 @@ func (r *organizationResource) Configure(_ context.Context, req resource.Configu
 	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-func (r *organizationResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config organizationResourceModel
-	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-	if resp.Diagnostics.HasError() || config.Plan.IsUnknown() {
-		return
-	}
-	if !config.ID.IsNull() && config.Plan.ValueString() != provisionedPlan {
-		resp.Diagnostics.AddAttributeError(path.Root("id"), "Cannot choose the organization ID",
-			"Only an organization set up with plan = \"provisioned\" can have a chosen ID.")
-	}
-}
-
 func (m *organizationResourceModel) set(org *client.Organization) {
 	m.ID = types.StringValue(org.ID)
 	m.Slug = optionalString(org.Slug)
@@ -136,11 +116,7 @@ func (r *organizationResource) Create(ctx context.Context, req resource.CreateRe
 	var org *client.Organization
 	var err error
 	if plan.Plan.ValueString() == provisionedPlan {
-		id := plan.ID.ValueString()
-		if plan.ID.IsUnknown() || plan.ID.IsNull() {
-			id = uuid.NewString()
-		}
-		org, err = r.client.ProvisionOrganization(ctx, id, body)
+		org, err = r.client.ProvisionOrganization(ctx, body)
 	} else {
 		org, err = r.client.CreateOrganization(ctx, body)
 	}

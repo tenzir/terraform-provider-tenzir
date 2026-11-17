@@ -8,7 +8,7 @@ import (
 var (
 	opReadOrganization      = op("GET", "/organizations/{org}")
 	opCreateOrganization    = op("POST", "/organizations")
-	opProvisionOrganization = op("PUT", "/organizations/{org}")
+	opProvisionOrganization = op("POST", "/organizations/provision")
 	opUpdateOrganization    = op("POST", "/organizations/{org}/update")
 	opDeleteOrganization    = op("DELETE", "/organizations/{org}")
 	opListRoles             = op("GET", "/organizations/{org}/roles")
@@ -99,11 +99,11 @@ func (c *Client) CreateOrganization(ctx context.Context, org NewOrganization) (*
 	return &out, nil
 }
 
-// ProvisionOrganization creates an organization under the given ID, on the
-// provisioned plan and without members. Only platform administrators may.
-func (c *Client) ProvisionOrganization(ctx context.Context, id string, org NewOrganization) (*Organization, error) {
+// ProvisionOrganization creates an organization on the provisioned plan and
+// without members. Only platform administrators may.
+func (c *Client) ProvisionOrganization(ctx context.Context, org NewOrganization) (*Organization, error) {
 	var out Organization
-	if err := c.call(ctx, opProvisionOrganization, []string{id}, nil, org, &out); err != nil {
+	if err := c.call(ctx, opProvisionOrganization, nil, nil, org, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

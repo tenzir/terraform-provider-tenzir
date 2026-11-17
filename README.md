@@ -50,9 +50,8 @@ needs every permission that the managed resources need; each resource's
 documentation lists them.
 
 A platform administrator's key may set organizations up for others: create
-one on the provisioned plan, which bills nothing, under a fixed or generated
-ID. The key's policy must name that permission too,
-`Root.provisionOrganization`.
+one on the provisioned plan, which bills nothing. The key's policy must name
+that permission too, `Root.provisionOrganization`.
 
 ### Resources
 

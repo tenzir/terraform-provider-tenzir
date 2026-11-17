@@ -152,12 +152,11 @@ refuses a colon in a branch name, so the first colon ends the branch.
 4. Open: creating a deployment accepts a branch without commits, which
    `POST …/tracker/update` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
-6. Done for administrators: `PUT /organizations/:id` creates an organization
-   under a fixed ID, without members, on the provisioned plan, which bills
+6. Done for administrators: `POST /organizations/provision` creates an
+   organization without members, on the provisioned plan, which bills
    nothing and which nobody in the organization can change. Only `sys.admin`
-   holds it. `tenzir_organization` with `plan = "provisioned"` uses it, with
-   `id` or a UUID the provider generates; without `plan`, the provider creates
-   the organization as anyone would. Changing `plan` replaces the
+   holds it. `tenzir_organization` with `plan = "provisioned"` uses it;
+   without `plan`, the provider creates the organization as anyone would. Changing `plan` replaces the
    organization, because the platform moves no organization onto or off the
    provisioned plan. Users are not managed by Terraform: they come and go, and
    join an organization by invitation.
