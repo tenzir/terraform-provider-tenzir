@@ -50,13 +50,16 @@ needs every permission that the managed resources need; each resource's
 documentation lists them.
 
 A platform administrator's key may set organizations up for others: create
-one on the provisioned plan, which bills nothing. The key's policy must name
-that permission too, `Root.provisionOrganization`.
+one on the provisioned plan, which bills nothing, and make its own user the
+owner with `tenzir_organization_member` and `tenzir_current_user`. The key's
+policy must name those permissions too, `Root.provisionOrganization` and
+`Organization.addMember`.
 
 ### Resources
 
 - `tenzir_workspace`
-- `tenzir_organization`
+- `tenzir_organization` and `tenzir_organization_member`, the latter for the
+  account that manages an organization, not for its users
 - `tenzir_role` and `tenzir_role_assignment`
 - `tenzir_api_key`
 - `tenzir_secret`, at the organization, workspace or deployment level
@@ -68,6 +71,7 @@ that permission too, `Root.provisionOrganization`.
 
 - `tenzir_organization` and `tenzir_workspace`
 - `tenzir_members` and `tenzir_roles`
+- `tenzir_current_user`
 - `tenzir_deployment`, `tenzir_deployment_types` and `tenzir_deployment_images`
 
 See [`docs/`](docs/) for every attribute, and [`examples/`](examples/).

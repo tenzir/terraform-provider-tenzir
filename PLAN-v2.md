@@ -89,7 +89,9 @@ Data sources: `tenzir_organization`, `tenzir_workspace`, `tenzir_members`,
 `tenzir_organization` was only a data source in phase 1. Creating an
 organization needs a user identity, and its delete is refused while the
 organization holds anything. It is a resource too since administrators can
-provision organizations; see open item 6.
+provision organizations, as are `tenzir_organization_member` and the
+`tenzir_current_user` data source, for the account that manages such an
+organization; see open item 6.
 
 ### Phase 2: deployments
 
@@ -158,8 +160,13 @@ refuses a colon in a branch name, so the first colon ends the branch.
    holds it. `tenzir_organization` with `plan = "provisioned"` uses it;
    without `plan`, the provider creates the organization as anyone would. Changing `plan` replaces the
    organization, because the platform moves no organization onto or off the
-   provisioned plan. Users are not managed by Terraform: they come and go, and
-   join an organization by invitation.
+   provisioned plan. `POST …/members` adds an existing user with roles,
+   without an invitation, under `Organization.addMember`, which only
+   `sys.admin` holds: `tenzir_organization_member` uses it to make the
+   managing account, from `tenzir_current_user` (`GET /account`), the owner
+   of an organization it provisioned. Other users are not managed by
+   Terraform: they come and go, and join an organization by invitation or,
+   for the demo, by signing up.
 7. Done: `POST …/branches/:branch/commits` commits changes against an
    expected head, without a draft, under `WorkspaceBranch.commitChanges`,
    which branch protection governs. A commit names a

@@ -130,21 +130,39 @@ func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
 	}
 }
 
-func TestProvisionOrganization(t *testing.T) {
-	var got string
+func TestAdministratorRequests(t *testing.T) {
+	var got []string
 	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		got = r.Method + " " + r.URL.Path + " " + string(body)
+		got = append(got, r.Method+" "+r.URL.Path+" "+string(body))
 		_, _ = w.Write([]byte(`{}`))
 	})
 	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.ProvisionOrganization(context.Background(), NewOrganization{Slug: "demo"}); err != nil {
+	ctx := context.Background()
+	if _, err := c.ProvisionOrganization(ctx, NewOrganization{Slug: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := `POST /api/organizations/provision {"slug":"demo"}`; got != want {
-		t.Errorf("got %s, want %s", got, want)
+	if _, err := c.AddMember(ctx, "demo", NewMember{UserID: "user-id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemoveMember(ctx, "demo", "member-id"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		`POST /api/organizations/provision {"slug":"demo"}`,
+		// The platform requires the roles, even when there are none.
+		`POST /api/organizations/demo/members {"userId":"user-id","roleIds":[]}`,
+		`DELETE /api/organizations/demo/members/member-id `,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d requests, want %d: %q", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("request %d: got %s, want %s", i, got[i], want[i])
+		}
 	}
 }
