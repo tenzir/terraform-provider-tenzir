@@ -240,12 +240,12 @@ func newFakeHostingPlatform(t *testing.T) *fakeHostingPlatform {
 			handle(w, r, d)
 		}
 	}
-	mux.HandleFunc("GET /api/deployments/{id}/details", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
+	mux.HandleFunc("GET /api/organizations/{org}/workspaces/{ws}/deployments/{id}/details", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
 		d.polls++
 		d.details.Reachable = d.polls >= 3
 		reply(w, d.details)
 	}))
-	mux.HandleFunc("POST /api/deployments/{id}/update", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
+	mux.HandleFunc("POST /api/organizations/{org}/workspaces/{ws}/deployments/{id}/update", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
 		var patch client.DeploymentPatch
 		_ = json.NewDecoder(r.Body).Decode(&patch)
 		if patch.Name != nil {
@@ -253,13 +253,13 @@ func newFakeHostingPlatform(t *testing.T) *fakeHostingPlatform {
 		}
 		reply(w, d.details.Deployment)
 	}))
-	mux.HandleFunc("PUT /api/deployments/{id}/type", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
+	mux.HandleFunc("POST /api/organizations/{org}/workspaces/{ws}/deployments/{id}/change-type", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
 		var body struct{ Size string }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		d.details.Size = &body.Size
 		reply(w, body)
 	}))
-	mux.HandleFunc("DELETE /api/deployments/{id}", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
+	mux.HandleFunc("DELETE /api/organizations/{org}/workspaces/{ws}/deployments/{id}", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
 		delete(f.deployments, d.details.Deployment.ID)
 		w.WriteHeader(http.StatusNoContent)
 	}))
