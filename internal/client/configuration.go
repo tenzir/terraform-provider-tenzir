@@ -10,9 +10,9 @@ import (
 var (
 	opReadFileTree               = op("GET", "/organizations/{org}/workspaces/{workspace}/file-tree")
 	opReadFile                   = op("GET", "/organizations/{org}/workspaces/{workspace}/file")
-	opReadCommit                 = op("GET", "/organizations/{org}/workspaces/{workspace}/commits/detail")
+	opReadCommit                 = op("GET", "/organizations/{org}/workspaces/{workspace}/commits/{commit}")
 	opReadConfiguredPipelines    = op("GET", "/organizations/{org}/workspaces/{workspace}/pipelines")
-	opCommitConfigurationChanges = op("POST", "/organizations/{org}/workspaces/{workspace}/configuration/commits")
+	opCommitConfigurationChanges = op("POST", "/organizations/{org}/workspaces/{workspace}/branches/{branch}/commits")
 )
 
 // TagHeadMoved is the error tag for a commit whose branch no longer points at
@@ -87,7 +87,7 @@ func (c *Client) ReadFile(ctx context.Context, org, workspace, commit, path stri
 // ReadCommit reads a commit.
 func (c *Client) ReadCommit(ctx context.Context, org, workspace, commit string) (*GitCommitDetails, error) {
 	var out GitCommitDetails
-	if err := c.call(ctx, opReadCommit, []string{org, workspace}, url.Values{"commit": {commit}}, nil, &out); err != nil {
+	if err := c.call(ctx, opReadCommit, []string{org, workspace, commit}, nil, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -108,15 +108,14 @@ func (c *Client) ReadConfiguredPipelines(ctx context.Context, org, workspace, br
 // is commit nothing and return the head.
 func (c *Client) CommitChanges(ctx context.Context, org, workspace, branch, expectedHead, message string, changes []FileChange) (string, error) {
 	body := struct {
-		Branch       string       `json:"branch"`
 		ExpectedHead string       `json:"expectedHead"`
 		Message      string       `json:"message,omitempty"`
 		Changes      []FileChange `json:"changes"`
-	}{branch, expectedHead, message, changes}
+	}{expectedHead, message, changes}
 	var out struct {
 		Commit string `json:"commit"`
 	}
-	if err := c.call(ctx, opCommitConfigurationChanges, []string{org, workspace}, nil, body, &out); err != nil {
+	if err := c.call(ctx, opCommitConfigurationChanges, []string{org, workspace, branch}, nil, body, &out); err != nil {
 		return "", err
 	}
 	return out.Commit, nil

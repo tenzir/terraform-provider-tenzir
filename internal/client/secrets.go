@@ -4,19 +4,19 @@ import "context"
 
 var (
 	opReadOrganizationSecret   = op("GET", "/organizations/{org}/secrets/{name}")
-	opCreateOrganizationSecret = op("POST", "/organizations/{org}/secrets/{name}")
-	opSetOrganizationSecret    = op("PUT", "/organizations/{org}/secrets/{name}")
+	opCreateOrganizationSecret = op("POST", "/organizations/{org}/secrets")
+	opSetOrganizationSecret    = op("POST", "/organizations/{org}/secrets/{name}/set")
 	opDeleteOrganizationSecret = op("DELETE", "/organizations/{org}/secrets/{name}")
 
 	opReadWorkspaceSecret   = op("GET", "/organizations/{org}/workspaces/{workspace}/secrets/{name}")
-	opCreateWorkspaceSecret = op("POST", "/organizations/{org}/workspaces/{workspace}/secrets/{name}")
-	opSetWorkspaceSecret    = op("PUT", "/organizations/{org}/workspaces/{workspace}/secrets/{name}")
+	opCreateWorkspaceSecret = op("POST", "/organizations/{org}/workspaces/{workspace}/secrets")
+	opSetWorkspaceSecret    = op("POST", "/organizations/{org}/workspaces/{workspace}/secrets/{name}/set")
 	opDeleteWorkspaceSecret = op("DELETE", "/organizations/{org}/workspaces/{workspace}/secrets/{name}")
 
-	opReadDeploymentSecret   = op("GET", "/organizations/{org}/workspaces/{workspace}/deployments/{deployment}/secrets/{name}")
-	opCreateDeploymentSecret = op("POST", "/organizations/{org}/workspaces/{workspace}/deployments/{deployment}/secrets/{name}")
-	opSetDeploymentSecret    = op("PUT", "/organizations/{org}/workspaces/{workspace}/deployments/{deployment}/secrets/{name}")
-	opDeleteDeploymentSecret = op("DELETE", "/organizations/{org}/workspaces/{workspace}/deployments/{deployment}/secrets/{name}")
+	opReadDeploymentSecret   = op("GET", deploymentPath+"/secrets/{name}")
+	opCreateDeploymentSecret = op("POST", deploymentPath+"/secrets")
+	opSetDeploymentSecret    = op("POST", deploymentPath+"/secrets/{name}/set")
+	opDeleteDeploymentSecret = op("DELETE", deploymentPath+"/secrets/{name}")
 )
 
 // SecretScope names the organization, workspace or deployment that holds a
@@ -102,8 +102,12 @@ func (c *Client) ReadSecret(ctx context.Context, scope SecretScope, name string)
 // CreateSecret creates a secret, failing if one of that name exists.
 func (c *Client) CreateSecret(ctx context.Context, scope SecretScope, name string, write SecretWrite) (*Secret, error) {
 	_, create, _, _ := c.secretOps(scope)
+	body := struct {
+		Name string `json:"name"`
+		SecretWrite
+	}{name, write}
 	var out Secret
-	if err := c.call(ctx, create, append(scope.args(), name), nil, write, &out); err != nil {
+	if err := c.call(ctx, create, scope.args(), nil, body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

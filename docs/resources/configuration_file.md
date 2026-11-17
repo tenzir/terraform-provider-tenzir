@@ -6,7 +6,7 @@ description: |-
   One text file on one branch of a workspace's configuration repository, such as a pipeline at pipelines/<name>.tql. Deployments that follow the branch run what it declares.
   Every create, update and delete is one commit by the credential's user, which the provider makes against the branch tip it read the file at. When the branch moves in between, it reads the file again and retries, up to three attempts. Writes to the same branch wait for each other within one Terraform run. The provider does not touch configuration drafts, so edits that someone has not published in the web UI stay as they are.
   Creating a file that exists with other content fails; import it instead. Deleting a file that is gone succeeds. Package files (package.yaml, package.lock, src/) are refused, because deployments do not run them yet. After a write, the provider warns when the branch holds something no deployment would take.
-  Needs a user's credential and Workspace.read, Workspace.readFileTree, Workspace.readFile, Workspace.readConfiguredPipelines and Workspace.commitChanges.
+  Needs a user's credential and Workspace.read, Workspace.readFileTree, Workspace.readFile, Workspace.readConfiguredPipelines, and WorkspaceBranch.commitChanges on the branch, which branch protection governs.
 ---
 
 # tenzir_configuration_file (Resource)
@@ -17,7 +17,7 @@ Every create, update and delete is one commit by the credential's user, which th
 
 Creating a file that exists with other content fails; import it instead. Deleting a file that is gone succeeds. Package files (`package.yaml`, `package.lock`, `src/`) are refused, because deployments do not run them yet. After a write, the provider warns when the branch holds something no deployment would take.
 
-Needs a user's credential and `Workspace.read`, `Workspace.readFileTree`, `Workspace.readFile`, `Workspace.readConfiguredPipelines` and `Workspace.commitChanges`.
+Needs a user's credential and `Workspace.read`, `Workspace.readFileTree`, `Workspace.readFile`, `Workspace.readConfiguredPipelines`, and `WorkspaceBranch.commitChanges` on the branch, which branch protection governs.
 
 ## Example Usage
 

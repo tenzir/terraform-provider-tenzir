@@ -95,8 +95,8 @@ provision organizations; see open item 6.
 
 | Resource | API | Notes |
 |---|---|---|
-| `tenzir_deployment` | `POST …/deployments`, `update`, `tracker`, `DELETE` | Self-hosted. `name` renames in place; `branch` and `auto_deploy` update through `PUT tracker`. Read takes `GET …/details` |
-| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `update`, `tracker`, `type`, `DELETE` | `size` updates in place (restart); `region` forces replacement. The platform does not report `image`, so the state keeps the configured one; changing it forces replacement, except after an import, where it is null. Create waits until `reachable`, with a `create` timeout |
+| `tenzir_deployment` | `POST …/deployments`, `update`, `tracker`, `DELETE` | Self-hosted. `name` renames in place; `branch` and `auto_deploy` update through `POST tracker/update`. Read takes `GET …/details` |
+| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `update`, `tracker/update`, `change-type`, `DELETE` | `size` updates in place (restart); `region` forces replacement. The platform does not report `image`, so the state keeps the configured one; changing it forces replacement, except after an import, where it is null. Create waits until `reachable`, with a `create` timeout |
 | `tenzir_deployment_key` | `POST …/rotate-key` | Mints a key on create and when `triggers` change; `key` is sensitive. Destroy only drops it from the state. A separate resource, because minting locks out whatever runs with the previous key on its next reconnect |
 
 The two kinds stay separate resources: their create calls and mutable fields
@@ -118,7 +118,7 @@ and 2, Terraform only points deployments at a branch.
 
 Phase 3 adds `tenzir_configuration_file`: one file on one branch of a
 workspace, keyed by `(workspace, branch, path)`. Create, update and delete
-each make one commit with `POST …/configuration/commits`, whose
+each make one commit with `POST …/branches/:branch/commits`, whose
 `expectedHead` is the tip that the provider read the file at. Read takes the
 file at the branch tip (`file-tree`, then `file` at its commit), and drops
 the resource when the file or branch is gone. The import ID is `<organization>/<workspace>/<branch>:<path>`; Git
@@ -145,23 +145,24 @@ refuses a colon in a branch name, so the first colon ends the branch.
 
 ## Platform changes this needs (in `tenzir/mono`)
 
-1. Done: `GET /api/deployments/:id/details` returns the tracker, hosting
+1. Done: `GET …/deployments/:id/details` returns the tracker, hosting
    kind, size and region, so `Read` can detect drift without a list call.
 2. Done: a single-secret `GET` for each scope, instead of filtering the list.
-3. Done: `POST /api/deployments/:id/update` renames a deployment.
+3. Done: `POST …/deployments/:id/update` renames a deployment.
 4. Open: creating a deployment accepts a branch without commits, which
-   `PUT …/tracker` refuses, so a typo surfaces only on the next change.
+   `POST …/tracker/update` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
 6. Done for administrators: `PUT /organizations/:id` creates an organization
    under a fixed ID with the caller as its owner, which `tenzir_organization`
    with `id` needs. Only
    `sys.admin` holds it. Users are not managed by Terraform: they come and go,
    and join an organization by invitation.
-7. Done: `POST …/configuration/commits` commits changes against an expected
-   head, without a draft, under `Workspace.commitChanges`. A commit names a
+7. Done: `POST …/branches/:branch/commits` commits changes against an
+   expected head, without a draft, under `WorkspaceBranch.commitChanges`,
+   which branch protection governs. A commit names a
    user as its author, so it takes a user or a user's API key; service
    accounts can write configuration files once they can hold
-   `Workspace.commitChanges` and author commits.
+   `WorkspaceBranch.commitChanges` and author commits.
 
 ## Tests
 

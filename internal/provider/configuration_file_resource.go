@@ -62,7 +62,8 @@ func (r *configurationFileResource) Schema(_ context.Context, _ resource.SchemaR
 			"deployments do not run them yet. After a write, the provider warns when the branch holds " +
 			"something no deployment would take.\n\n" +
 			"Needs a user's credential and `Workspace.read`, `Workspace.readFileTree`, `Workspace.readFile`, " +
-			"`Workspace.readConfiguredPipelines` and `Workspace.commitChanges`.",
+			"`Workspace.readConfiguredPipelines`, and `WorkspaceBranch.commitChanges` on the branch, which branch " +
+			"protection governs.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "`<organization ID>/<workspace ID>/<branch>:<path>`.",

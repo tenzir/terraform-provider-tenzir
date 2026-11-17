@@ -396,7 +396,7 @@ func TestPublishFileRetries(t *testing.T) {
 				reply(w, http.StatusOK, client.GitFile{Path: "pipelines/a.tql", Text: tc.there})
 			})
 			moved := 0
-			mux.HandleFunc("POST "+workspace+"/configuration/commits", func(w http.ResponseWriter, r *http.Request) {
+			mux.HandleFunc("POST "+workspace+"/branches/{branch}/commits", func(w http.ResponseWriter, r *http.Request) {
 				var body struct {
 					ExpectedHead string `json:"expectedHead"`
 				}
