@@ -130,44 +130,21 @@ func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
 	}
 }
 
-func TestAdministratorRequests(t *testing.T) {
-	type request struct{ method, path, query, body string }
-	var got []request
+func TestProvisionOrganization(t *testing.T) {
+	var got string
 	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		got = append(got, request{r.Method, r.URL.Path, r.URL.RawQuery, string(body)})
-		if r.Method == "GET" {
-			_, _ = w.Write([]byte(`[]`))
-			return
-		}
+		got = r.Method + " " + r.URL.Path + " " + string(body)
 		_, _ = w.Write([]byte(`{}`))
 	})
 	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
-	if _, err := c.ProvisionOrganization(ctx, "org-id", NewOrganization{Slug: "demo"}); err != nil {
+	if _, err := c.ProvisionOrganization(context.Background(), "org-id", NewOrganization{Slug: "demo"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.AddMember(ctx, "demo", NewMember{UserID: "user-id"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.ListUsersByEmail(ctx, "a+b@example.com"); err != nil {
-		t.Fatal(err)
-	}
-	want := []request{
-		{"PUT", "/api/organizations/org-id", "", `{"slug":"demo"}`},
-		// The platform requires the roles, even when there are none.
-		{"POST", "/api/organizations/demo/members", "", `{"userId":"user-id","roleIds":[]}`},
-		{"GET", "/api/users", "email=a%2Bb%40example.com", ""},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("got %d requests, want %d: %+v", len(got), len(want), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("request %d: got %+v, want %+v", i, got[i], want[i])
-		}
+	if want := `PUT /api/organizations/org-id {"slug":"demo"}`; got != want {
+		t.Errorf("got %s, want %s", got, want)
 	}
 }

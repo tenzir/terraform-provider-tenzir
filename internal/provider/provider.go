@@ -132,7 +132,6 @@ func setting(value types.String, env string) string {
 func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewOrganizationResource,
-		NewOrganizationMemberResource,
 		NewWorkspaceResource,
 		NewRoleResource,
 		NewRoleAssignmentResource,
@@ -152,7 +151,6 @@ func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.Data
 		NewWorkspaceDataSource,
 		NewPeopleDataSource,
 		NewRolesDataSource,
-		NewUserDataSource,
 		NewDeploymentTypesDataSource,
 		NewDeploymentImagesDataSource,
 		NewDeploymentDataSource,

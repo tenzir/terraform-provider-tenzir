@@ -153,10 +153,9 @@ refuses a colon in a branch name, so the first colon ends the branch.
    `PUT …/tracker` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
 6. Done for administrators: `PUT /organizations/:id` creates an organization
-   under a fixed ID without members, `POST …/members` adds an existing user
-   with roles, and `GET /users?email=` finds them. Only `sys.admin` holds
-   these, which `tenzir_organization` with `id`, `tenzir_organization_member`
-   and `tenzir_user` need. Members other people join still need invitations.
+   under a fixed ID, which `tenzir_organization` with `id` needs. Only
+   `sys.admin` holds it. Users are not managed by Terraform: they come and go,
+   and join an organization by invitation.
 7. Done: `POST …/configuration/commits` commits changes against an expected
    head, without a draft, under `Workspace.commitChanges`. A commit names a
    user as its author, so it takes a user or a user's API key; service
