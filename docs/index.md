@@ -35,4 +35,5 @@ provider "tenzir" {
 
 - `api_key` (String, Sensitive) A user API key (`tnzu_…`), sent as `x-tenzir-api-key`. Defaults to the `TENZIR_API_KEY` environment variable. Conflicts with `token`.
 - `token` (String, Sensitive) An OIDC bearer token that the platform accepts. Defaults to the `TENZIR_TOKEN` environment variable. Conflicts with `api_key`.
+- `token_file` (String) A file that holds an OIDC bearer token, read again for every request. Use it for tokens that expire during an apply, such as GitHub Actions' ID tokens, and replace the file's content before the token in it expires. Defaults to the `TENZIR_TOKEN_FILE` environment variable. Conflicts with `api_key` and `token`.
 - `url` (String) The platform address, which serves `/.well-known/tenzir-platform`. Defaults to the `TENZIR_PLATFORM_URL` environment variable, or `https://platform.tenzir.dev`.

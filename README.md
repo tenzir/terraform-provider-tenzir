@@ -44,6 +44,9 @@ defaulting to `https://platform.tenzir.dev`, and finds the API through
 - `api_key` or `TENZIR_API_KEY`: a user API key (`tnzu_…`). Mint one with
   `tenzir api-key create` from the platform CLI.
 - `token` or `TENZIR_TOKEN`: an OIDC bearer token the platform accepts.
+- `token_file` or `TENZIR_TOKEN_FILE`: a file that holds such a token, read
+  again for every request, so that a job can replace a token that expires
+  during an apply.
 
 An API key acts as its user, limited further by its own policy. The user
 needs every permission that the managed resources need; each resource's

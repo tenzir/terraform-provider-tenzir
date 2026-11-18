@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -90,6 +92,33 @@ func TestRequestsCarryOneCredentialAndEscapedPaths(t *testing.T) {
 	}
 	if _, err := New(context.Background(), Config{URL: srv.URL, Token: "a", APIKey: "b"}); err == nil {
 		t.Error("accepted both an API key and a token")
+	}
+}
+
+func TestTokenFileIsReadForEveryRequest(t *testing.T) {
+	var gotAuth string
+	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{}`))
+	})
+	file := filepath.Join(t.TempDir(), "token")
+	if _, err := New(context.Background(), Config{URL: srv.URL, TokenFile: file, Token: "tok"}); err == nil {
+		t.Error("accepted both a token and a token file")
+	}
+	c, err := New(context.Background(), Config{URL: srv.URL, TokenFile: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"first", "second"} {
+		if err := os.WriteFile(file, []byte(token+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ReadWorkspace(context.Background(), "org", "ws"); err != nil {
+			t.Fatal(err)
+		}
+		if gotAuth != "Bearer "+token {
+			t.Errorf("authorization %q, want the file's %q", gotAuth, token)
+		}
 	}
 }
 

@@ -29,6 +29,9 @@ type providerModel struct {
 	URL    types.String `tfsdk:"url"`
 	APIKey types.String `tfsdk:"api_key"`
 	Token  types.String `tfsdk:"token"`
+	// TokenFile is read for every request, so a token can be renewed while
+	// a long apply runs.
+	TokenFile types.String `tfsdk:"token_file"`
 }
 
 func New(version string) func() provider.Provider {
@@ -56,13 +59,21 @@ func (p *TenzirProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 					"Defaults to the `TENZIR_API_KEY` environment variable. Conflicts with `token`.",
 				Optional:   true,
 				Sensitive:  true,
-				Validators: []validator.String{stringvalidator.ConflictsWith(path.MatchRoot("token"))},
+				Validators: []validator.String{stringvalidator.ConflictsWith(path.MatchRoot("token"), path.MatchRoot("token_file"))},
 			},
 			"token": schema.StringAttribute{
 				MarkdownDescription: "An OIDC bearer token that the platform accepts. " +
 					"Defaults to the `TENZIR_TOKEN` environment variable. Conflicts with `api_key`.",
-				Optional:  true,
-				Sensitive: true,
+				Optional:   true,
+				Sensitive:  true,
+				Validators: []validator.String{stringvalidator.ConflictsWith(path.MatchRoot("token_file"))},
+			},
+			"token_file": schema.StringAttribute{
+				MarkdownDescription: "A file that holds an OIDC bearer token, read again for every request. " +
+					"Use it for tokens that expire during an apply, such as GitHub Actions' ID tokens, and replace " +
+					"the file's content before the token in it expires. " +
+					"Defaults to the `TENZIR_TOKEN_FILE` environment variable. Conflicts with `api_key` and `token`.",
+				Optional: true,
 			},
 		},
 	}
@@ -74,7 +85,7 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	for name, value := range map[string]types.String{"url": config.URL, "api_key": config.APIKey, "token": config.Token} {
+	for name, value := range map[string]types.String{"url": config.URL, "api_key": config.APIKey, "token": config.Token, "token_file": config.TokenFile} {
 		if value.IsUnknown() {
 			resp.Diagnostics.AddAttributeError(path.Root(name), "Unknown provider configuration",
 				"The provider needs `"+name+"` before it can plan, so it cannot depend on a value that is only known after apply.")
@@ -90,20 +101,31 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 	}
 	apiKey := setting(config.APIKey, "TENZIR_API_KEY")
 	token := setting(config.Token, "TENZIR_TOKEN")
-	if !config.APIKey.IsNull() && config.Token.IsNull() {
-		token = ""
+	tokenFile := setting(config.TokenFile, "TENZIR_TOKEN_FILE")
+	// A credential set as an attribute overrides those in the environment.
+	switch {
+	case !config.APIKey.IsNull():
+		token, tokenFile = "", ""
+	case !config.Token.IsNull():
+		apiKey, tokenFile = "", ""
+	case !config.TokenFile.IsNull():
+		apiKey, token = "", ""
 	}
-	if !config.Token.IsNull() && config.APIKey.IsNull() {
-		apiKey = ""
+	set := 0
+	for _, credential := range []string{apiKey, token, tokenFile} {
+		if credential != "" {
+			set++
+		}
 	}
-	if apiKey == "" && token == "" {
+	if set == 0 {
 		resp.Diagnostics.AddError("Missing credential",
-			"Set `api_key` (or TENZIR_API_KEY) to a user API key, or `token` (or TENZIR_TOKEN) to a bearer token.")
+			"Set `api_key` (or TENZIR_API_KEY) to a user API key, `token` (or TENZIR_TOKEN) to a bearer token, "+
+				"or `token_file` (or TENZIR_TOKEN_FILE) to a file that holds one.")
 		return
 	}
-	if apiKey != "" && token != "" {
+	if set > 1 {
 		resp.Diagnostics.AddError("Conflicting credentials",
-			"Both an API key and a token are set, through attributes or the environment. The platform refuses requests that carry both; set one.")
+			"More than one of an API key, a token and a token file are set, through attributes or the environment. The platform takes one credential; set one.")
 		return
 	}
 
@@ -111,6 +133,7 @@ func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		URL:       url,
 		APIKey:    apiKey,
 		Token:     token,
+		TokenFile: tokenFile,
 		UserAgent: "terraform-provider-tenzir/" + p.version,
 	})
 	if err != nil {

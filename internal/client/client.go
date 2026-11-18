@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -22,6 +23,10 @@ type Config struct {
 	APIKey string
 	// Token is an OIDC bearer token, sent as Authorization: Bearer.
 	Token string
+	// TokenFile names a file that holds the bearer token. It is read again
+	// for every request, so that whoever writes it can replace a token
+	// before it expires.
+	TokenFile string
 	// UserAgent identifies the caller.
 	UserAgent string
 	// HTTPClient defaults to a client with a timeout.
@@ -34,14 +39,21 @@ type Client struct {
 	platform  Platform
 	apiKey    string
 	token     string
+	tokenFile string
 	userAgent string
 	http      *http.Client
 }
 
 // New discovers where the platform serves its API and returns a client for it.
 func New(ctx context.Context, cfg Config) (*Client, error) {
-	if cfg.APIKey != "" && cfg.Token != "" {
-		return nil, fmt.Errorf("an API key and a token are both set; the platform accepts only one")
+	set := 0
+	for _, credential := range []string{cfg.APIKey, cfg.Token, cfg.TokenFile} {
+		if credential != "" {
+			set++
+		}
+	}
+	if set > 1 {
+		return nil, fmt.Errorf("more than one of an API key, a token and a token file are set; the platform accepts only one")
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
@@ -50,6 +62,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	c := &Client{
 		apiKey:    cfg.APIKey,
 		token:     cfg.Token,
+		tokenFile: cfg.TokenFile,
 		userAgent: cfg.UserAgent,
 		http:      hc,
 	}
@@ -208,6 +221,12 @@ func (c *Client) send(ctx context.Context, operation, method, target string, bod
 			req.Header.Set("x-tenzir-api-key", c.apiKey)
 		case c.token != "":
 			req.Header.Set("Authorization", "Bearer "+c.token)
+		case c.tokenFile != "":
+			token, err := os.ReadFile(c.tokenFile)
+			if err != nil {
+				return fmt.Errorf("%s: reading the token file: %w", operation, err)
+			}
+			req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 		}
 	}
 	resp, err := c.http.Do(req)
