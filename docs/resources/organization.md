@@ -4,8 +4,8 @@ page_title: "tenzir_organization Resource - tenzir"
 subcategory: ""
 description: |-
   An organization.
-  Without plan, the caller becomes the first owner; this needs Root.createOrganization, and Terraform leaves the organization's plan to its owners.
-  With plan = "provisioned", a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with tenzir_organization_member. This needs Root.provisionOrganization, which only platform administrators hold.
+  Without plan, the provider's authenticated user becomes the sole owner of a new Community organization; this needs User.createOrganization on that user. Terraform leaves subsequent plan changes to its owners.
+  With plan = "provisioned", a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with tenzir_organization_member. This needs Root.createOrganization, which only platform administrators hold.
   Changing it needs Organization.update, and deleting it Organization.delete. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 ---
 
@@ -13,9 +13,9 @@ description: |-
 
 An organization.
 
-Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and Terraform leaves the organization's plan to its owners.
+Without `plan`, the provider's authenticated user becomes the sole owner of a new Community organization; this needs `User.createOrganization` on that user. Terraform leaves subsequent plan changes to its owners.
 
-With `plan = "provisioned"`, a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with `tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform administrators hold.
+With `plan = "provisioned"`, a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with `tenzir_organization_member`. This needs `Root.createOrganization`, which only platform administrators hold.
 
 Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 
@@ -31,7 +31,8 @@ resource "tenzir_organization" "demo" {
   plan = "provisioned"
 }
 
-# Anyone else omits the plan, and becomes the first owner.
+# Omit the plan to create a Community organization with the authenticated
+# user as its sole owner (User.createOrganization).
 resource "tenzir_organization" "acme" {
   slug = "acme"
 }

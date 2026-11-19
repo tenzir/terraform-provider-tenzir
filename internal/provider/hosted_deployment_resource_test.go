@@ -245,8 +245,8 @@ func newFakeHostingPlatform(t *testing.T) *fakeHostingPlatform {
 		d.details.Reachable = d.polls >= 3
 		reply(w, d.details)
 	}))
-	mux.HandleFunc("POST /api/organizations/{org}/workspaces/{ws}/deployments/{id}/update", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
-		var patch client.DeploymentPatch
+	mux.HandleFunc("POST /api/organizations/{org}/workspaces/{ws}/deployments/{id}/rename", deployment(func(w http.ResponseWriter, r *http.Request, d *fakeDeployment) {
+		var patch client.DeploymentRename
 		_ = json.NewDecoder(r.Body).Decode(&patch)
 		if patch.Name != nil {
 			d.details.Deployment.Name = *patch.Name

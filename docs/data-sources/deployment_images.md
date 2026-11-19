@@ -3,12 +3,12 @@
 page_title: "tenzir_deployment_images Data Source - tenzir"
 subcategory: ""
 description: |-
-  The deployment images that match the platform. The platform answers with an error when it cannot ask its registry.
+  The deployment images that match the platform. The list is empty when the platform cannot ask its registry.
 ---
 
 # tenzir_deployment_images (Data Source)
 
-The deployment images that match the platform. The platform answers with an error when it cannot ask its registry.
+The deployment images that match the platform. The list is empty when the platform cannot ask its registry.
 
 ## Example Usage
 
@@ -25,7 +25,7 @@ output "default_image" {
 
 ### Read-Only
 
-- `default` (String) The image a deployment runs unless told otherwise.
+- `default` (String) The image a new deployment starts on unless told otherwise; null when no matching image is available.
 - `images` (Attributes List) The images since the platform's release, newest first. (see [below for nested schema](#nestedatt--images))
 
 <a id="nestedatt--images"></a>

@@ -4,14 +4,14 @@ page_title: "tenzir_deployment Resource - tenzir"
 subcategory: ""
 description: |-
   A self-hosted deployment: a Tenzir node that runs where you install it and connects to the platform. It cannot connect until it has a key, which tenzir_deployment_key mints, or which the install command in the web UI fetches. Destroying it hands a connected deployment an empty configuration, so it stops its pipelines. For a deployment that Tenzir runs, use tenzir_hosted_deployment; for its connection status, the tenzir_deployment data source.
-  Needs Workspace.createDeployment and Deployment.read, Deployment.readTracker, Deployment.update, Deployment.changeTracker and Deployment.delete; parents given by slug also need Workspace.read.
+  Needs Workspace.createDeployment and Deployment.read, Deployment.readTracker, Deployment.rename, Deployment.changeTracker and Deployment.delete; parents given by slug also need Workspace.read.
 ---
 
 # tenzir_deployment (Resource)
 
 A self-hosted deployment: a Tenzir node that runs where you install it and connects to the platform. It cannot connect until it has a key, which `tenzir_deployment_key` mints, or which the install command in the web UI fetches. Destroying it hands a connected deployment an empty configuration, so it stops its pipelines. For a deployment that Tenzir runs, use `tenzir_hosted_deployment`; for its connection status, the `tenzir_deployment` data source.
 
-Needs `Workspace.createDeployment` and `Deployment.read`, `Deployment.readTracker`, `Deployment.update`, `Deployment.changeTracker` and `Deployment.delete`; parents given by slug also need `Workspace.read`.
+Needs `Workspace.createDeployment` and `Deployment.read`, `Deployment.readTracker`, `Deployment.rename`, `Deployment.changeTracker` and `Deployment.delete`; parents given by slug also need `Workspace.read`.
 
 ## Example Usage
 

@@ -1,11 +1,46 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
+	fwresource "github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
+
+func TestAPIKeyName(t *testing.T) {
+	ctx := context.Background()
+	var resp fwresource.SchemaResponse
+	(&apiKeyResource{}).Schema(ctx, fwresource.SchemaRequest{}, &resp)
+	name := resp.Schema.Attributes["name"].(schema.StringAttribute)
+	if !name.Required {
+		t.Fatal("an API key needs a name")
+	}
+	for _, tc := range []struct {
+		name  string
+		valid bool
+	}{
+		{name: ""},
+		{name: " \t\n"},
+		{name: "\u2003\uFEFF\v"},
+		{name: "CI key", valid: true},
+	} {
+		t.Run(fmt.Sprintf("%q", tc.name), func(t *testing.T) {
+			var validation validator.StringResponse
+			for _, v := range name.Validators {
+				v.ValidateString(ctx, validator.StringRequest{ConfigValue: types.StringValue(tc.name)}, &validation)
+			}
+			if validation.Diagnostics.HasError() == tc.valid {
+				t.Errorf("valid = %v, want %v: %v", !validation.Diagnostics.HasError(), tc.valid, validation.Diagnostics)
+			}
+		})
+	}
+}
 
 func TestAccAPIKey(t *testing.T) {
 	config := func(name, policy string) string {

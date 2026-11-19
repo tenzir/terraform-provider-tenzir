@@ -46,12 +46,12 @@ func (r *organizationResource) Metadata(_ context.Context, req resource.Metadata
 func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "An organization.\n\n" +
-			"Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and " +
-			"Terraform leaves the organization's plan to its owners.\n\n" +
+			"Without `plan`, the provider's authenticated user becomes the sole owner of a new Community organization; " +
+			"this needs `User.createOrganization` on that user. Terraform leaves subsequent plan changes to its owners.\n\n" +
 			"With `plan = \"provisioned\"`, a platform administrator sets the organization up, such as Tenzir's " +
 			"demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the " +
 			"organization can change. It has no members; add the account that manages it as its owner with " +
-			"`tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform " +
+			"`tenzir_organization_member`. This needs `Root.createOrganization`, which only platform " +
 			"administrators hold.\n\n" +
 			"Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses " +
 			"to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the " +
@@ -118,7 +118,17 @@ func (r *organizationResource) Create(ctx context.Context, req resource.CreateRe
 	if plan.Plan.ValueString() == provisionedPlan {
 		org, err = r.client.ProvisionOrganization(ctx, body)
 	} else {
-		org, err = r.client.CreateOrganization(ctx, body)
+		account, accountErr := r.client.ReadAccount(ctx)
+		if accountErr != nil {
+			resp.Diagnostics.AddError("Cannot tell who the provider authenticates as", accountErr.Error())
+			return
+		}
+		if account.User == nil {
+			resp.Diagnostics.AddError("No user to own the organization",
+				"The provider authenticates as a "+account.Tag+", not as a user; creating an organization without `plan` needs a user credential.")
+			return
+		}
+		org, err = r.client.CreateOrganization(ctx, account.User.ID, body)
 	}
 	if err != nil {
 		resp.Diagnostics.AddError("Cannot create the organization", err.Error())
