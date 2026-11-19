@@ -47,7 +47,10 @@ func (p *TenzirProvider) Metadata(_ context.Context, _ provider.MetadataRequest,
 
 func (p *TenzirProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.",
+		MarkdownDescription: "Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.\n\n" +
+			"Version 1.0 targets the new Tenzir Platform and shares no resources with 0.x. " +
+			"There is no state migration: remove the old resources from your state, then import or recreate them with the new ones. " +
+			"To stay on the old platform, pin `version = \"~> 0.1\"`.",
 		Attributes: map[string]schema.Attribute{
 			"url": schema.StringAttribute{
 				MarkdownDescription: "The platform address, which serves `/.well-known/tenzir-platform`. " +

@@ -3,11 +3,14 @@
 page_title: "tenzir Provider"
 description: |-
   Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.
+  Version 1.0 targets the new Tenzir Platform and shares no resources with 0.x. There is no state migration: remove the old resources from your state, then import or recreate them with the new ones. To stay on the old platform, pin version = "~> 0.1".
 ---
 
 # tenzir Provider
 
 Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.
+
+Version 1.0 targets the new Tenzir Platform and shares no resources with 0.x. There is no state migration: remove the old resources from your state, then import or recreate them with the new ones. To stay on the old platform, pin `version = "~> 0.1"`.
 
 ## Example Usage
 
