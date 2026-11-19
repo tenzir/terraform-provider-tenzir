@@ -2,91 +2,96 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
-var _ datasource.DataSource = &OrganizationDataSource{}
+var _ datasource.DataSourceWithConfigure = &organizationDataSource{}
 
 func NewOrganizationDataSource() datasource.DataSource {
-	return &OrganizationDataSource{}
+	return &organizationDataSource{}
 }
 
-// OrganizationDataSource looks up an existing organization by id. This is
-// the typical way to reference the organization in configurations that use
-// org-scoped credentials, which cannot create organizations themselves.
-type OrganizationDataSource struct {
+type organizationDataSource struct {
 	client *client.Client
 }
 
-type OrganizationDataSourceModel struct {
-	ID         types.String `tfsdk:"id"`
-	Name       types.String `tfsdk:"name"`
-	IconURL    types.String `tfsdk:"icon_url"`
-	RequireMFA types.Bool   `tfsdk:"require_mfa"`
+type organizationModel struct {
+	ID          types.String `tfsdk:"id"`
+	Slug        types.String `tfsdk:"slug"`
+	Name        types.String `tfsdk:"name"`
+	IconURL     types.String `tfsdk:"icon_url"`
+	MemberCount types.Int64  `tfsdk:"member_count"`
 }
 
-func (d *OrganizationDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *organizationDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_organization"
 }
 
-func (d *OrganizationDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *organizationDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up an existing organization in the Tenzir Platform. Use this to " +
-			"reference an organization that is managed outside of Terraform, e.g. when the " +
-			"provider runs with credentials scoped to that organization.",
+		MarkdownDescription: "An organization, looked up by ID or slug. Needs `Organization.read`.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "Unique identifier of the organization.",
-				Required:    true,
+				MarkdownDescription: "The organization ID. Set this or `slug`.",
+				Optional:            true,
+				Computed:            true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(path.MatchRoot("id"), path.MatchRoot("slug")),
+				},
+			},
+			"slug": schema.StringAttribute{
+				MarkdownDescription: "The organization's name in URLs. Set this or `id`.",
+				Optional:            true,
+				Computed:            true,
 			},
 			"name": schema.StringAttribute{
-				Description: "Display name of the organization.",
-				Computed:    true,
+				MarkdownDescription: "The display name.",
+				Computed:            true,
 			},
 			"icon_url": schema.StringAttribute{
-				Description: "URL of the organization icon.",
-				Computed:    true,
+				MarkdownDescription: "The URL of the organization icon.",
+				Computed:            true,
 			},
-			"require_mfa": schema.BoolAttribute{
-				Description: "Whether multi-factor authentication is required for all members.",
-				Computed:    true,
+			"member_count": schema.Int64Attribute{
+				MarkdownDescription: "How many users are members.",
+				Computed:            true,
 			},
 		},
 	}
 }
 
-func (d *OrganizationDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	d.client = resourceClient(req.ProviderData, resp.Diagnostics.AddError)
+func (d *organizationDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-func (d *OrganizationDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var config OrganizationDataSourceModel
+func (d *organizationDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var config organizationModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	org, err := d.client.GetOrganization(ctx, config.ID.ValueString())
+	ref := config.ID.ValueString()
+	if ref == "" {
+		ref = config.Slug.ValueString()
+	}
+	org, err := d.client.ReadOrganization(ctx, ref)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization", err.Error())
+		resp.Diagnostics.AddError("Cannot read the organization", err.Error())
 		return
 	}
-	if org == nil {
-		resp.Diagnostics.AddError(
-			"Organization not found",
-			fmt.Sprintf("No organization with id %q exists.", config.ID.ValueString()),
-		)
-		return
-	}
-
-	config.Name = types.StringValue(org.Name)
-	config.IconURL = types.StringValue(org.IconURL)
-	config.RequireMFA = types.BoolValue(org.RequireMFA)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &organizationModel{
+		ID:          types.StringValue(org.ID),
+		Slug:        optionalString(org.Slug),
+		Name:        types.StringValue(org.Name),
+		IconURL:     optionalString(org.IconURL),
+		MemberCount: types.Int64Value(org.MemberCount),
+	})...)
 }

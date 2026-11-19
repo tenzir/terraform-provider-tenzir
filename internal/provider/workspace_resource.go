@@ -2,184 +2,203 @@ package provider
 
 import (
 	"context"
-	"errors"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
-var _ resource.Resource = &WorkspaceResource{}
-var _ resource.ResourceWithImportState = &WorkspaceResource{}
+var (
+	_ resource.ResourceWithConfigure   = &workspaceResource{}
+	_ resource.ResourceWithImportState = &workspaceResource{}
+	_ resource.ResourceWithModifyPlan  = &workspaceResource{}
+)
 
 func NewWorkspaceResource() resource.Resource {
-	return &WorkspaceResource{}
+	return &workspaceResource{}
 }
 
-// WorkspaceResource manages a Tenzir Platform workspace.
-type WorkspaceResource struct {
+type workspaceResource struct {
 	client *client.Client
 }
 
-type WorkspaceResourceModel struct {
+type workspaceModel struct {
 	ID             types.String `tfsdk:"id"`
+	OrganizationID types.String `tfsdk:"organization_id"`
+	Slug           types.String `tfsdk:"slug"`
 	Name           types.String `tfsdk:"name"`
 	IconURL        types.String `tfsdk:"icon_url"`
-	OwnerNamespace types.String `tfsdk:"owner_namespace"`
-	OwnerID        types.String `tfsdk:"owner_id"`
 }
 
-func (r *WorkspaceResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *workspaceResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_workspace"
 }
 
-func (r *WorkspaceResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *workspaceResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A workspace in the Tenzir Platform. Workspaces created by this resource " +
-			"are owned by the organization of the user authenticated by the provider, so that " +
-			"organization must exist first — reference it with `depends_on` when managing both " +
-			"in the same configuration. (Personal workspaces are not supported because the API " +
-			"does not allow deleting them.)",
+		MarkdownDescription: "A workspace of an organization. It holds deployments, secrets and a git repository " +
+			"with their configuration.\n\n" +
+			"Needs `Organization.createWorkspace` and `Workspace.read`, `Workspace.update` and `Workspace.delete`. " +
+			"The platform refuses to delete a workspace that still holds deployments.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "Unique identifier of the workspace.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				MarkdownDescription: "The workspace ID.",
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"organization_id": schema.StringAttribute{
+				MarkdownDescription: "The ID or slug of the organization that owns the workspace.",
+				Required:            true,
+			},
+			"slug": schema.StringAttribute{
+				MarkdownDescription: "The workspace's name in URLs: lowercase letters, digits and single dashes.",
+				Required:            true,
 			},
 			"name": schema.StringAttribute{
-				Description: "Display name of the workspace.",
-				Required:    true,
+				MarkdownDescription: "The display name. Defaults to the slug.",
+				Optional:            true,
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"icon_url": schema.StringAttribute{
-				Description: "URL of the workspace icon.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(""),
-			},
-			"owner_namespace": schema.StringAttribute{
-				Description: "Namespace of the workspace owner (e.g. `organization`).",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"owner_id": schema.StringAttribute{
-				Description: "Identifier of the workspace owner.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				MarkdownDescription: "The URL of the workspace icon.",
+				Optional:            true,
 			},
 		},
 	}
 }
 
-func (r *WorkspaceResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.client = resourceClient(req.ProviderData, resp.Diagnostics.AddError)
+func (r *workspaceResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-func (r *WorkspaceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan WorkspaceResourceModel
+func (r *workspaceResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	planParents(ctx, r.client, req, resp, false)
+}
+
+// set copies the response, but keeps organization_id as configured, which
+// may be a slug.
+func (m *workspaceModel) set(ws *client.Workspace) {
+	m.ID = types.StringValue(ws.ID)
+	m.Slug = types.StringValue(ws.Slug)
+	m.Name = types.StringValue(ws.Name)
+	m.IconURL = optionalString(ws.IconURL)
+}
+
+func (r *workspaceResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan workspaceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	id, err := r.client.CreateWorkspace(ctx, plan.Name.ValueString(), plan.IconURL.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Error creating workspace", err.Error())
+	ids, ok := recordParents(ctx, r.client, organizationParent(plan.OrganizationID), resp.Private, &resp.Diagnostics)
+	if !ok {
 		return
 	}
-	plan.ID = types.StringValue(id)
-	// Read back to fill the computed owner attributes.
-	ws, err := r.client.GetWorkspace(ctx, id)
-	if err == nil && ws == nil {
-		err = errors.New("workspace disappeared while creating it")
-	}
+	ws, err := r.client.CreateWorkspace(ctx, ids.Organization, client.NewWorkspace{
+		Slug:    plan.Slug.ValueString(),
+		Name:    stringPointer(plan.Name),
+		IconURL: stringPointer(plan.IconURL),
+	})
 	if err != nil {
-		resp.Diagnostics.AddError(
-			"Error reading back created workspace",
-			"The workspace was created with id "+id+" but reading it back failed, "+
-				"so it is not tracked in state. Import it with `terraform import` "+
-				"or delete it manually. Error: "+err.Error(),
-		)
+		resp.Diagnostics.AddError("Cannot create the workspace", err.Error())
 		return
 	}
-	plan.OwnerNamespace = types.StringValue(ws.Owner.Namespace)
-	plan.OwnerID = types.StringValue(ws.Owner.OwnerID)
+	plan.set(ws)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-func (r *WorkspaceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state WorkspaceResourceModel
+func (r *workspaceResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state workspaceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	ws, err := r.client.GetWorkspace(ctx, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace", err.Error())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	if ws == nil {
-		// Deleted outside of Terraform; plan a re-create.
+	ws, err := r.client.ReadWorkspace(ctx, ids.Organization, state.ID.ValueString())
+	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	state.Name = types.StringValue(ws.Name)
-	state.IconURL = types.StringValue(ws.IconURL)
-	state.OwnerNamespace = types.StringValue(ws.Owner.Namespace)
-	state.OwnerID = types.StringValue(ws.Owner.OwnerID)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot read the workspace", err.Error())
+		return
+	}
+	state.set(ws)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *WorkspaceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, state WorkspaceResourceModel
+func (r *workspaceResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state workspaceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	id := plan.ID.ValueString()
+	var patch client.WorkspacePatch
+	if !plan.Slug.Equal(state.Slug) {
+		patch.Slug = stringPointer(plan.Slug)
+	}
 	if !plan.Name.Equal(state.Name) {
-		if err := r.client.RenameWorkspace(ctx, id, plan.Name.ValueString()); err != nil {
-			resp.Diagnostics.AddError("Error renaming workspace", err.Error())
-			return
-		}
+		patch.Name = stringPointer(plan.Name)
 	}
 	if !plan.IconURL.Equal(state.IconURL) {
-		if err := r.client.UpdateWorkspaceIcon(ctx, id, plan.IconURL.ValueString()); err != nil {
-			resp.Diagnostics.AddError("Error updating workspace icon", err.Error())
-			return
-		}
+		patch.IconURL = stringPointer(plan.IconURL)
+		patch.ClearIconURL = plan.IconURL.IsNull()
 	}
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ws, err := r.client.UpdateWorkspace(ctx, ids.Organization, state.ID.ValueString(), patch)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot update the workspace", err.Error())
+		return
+	}
+	plan.set(ws)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-func (r *WorkspaceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state WorkspaceResourceModel
+func (r *workspaceResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state workspaceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	if err := r.client.DeleteWorkspace(ctx, state.ID.ValueString()); err != nil {
-		resp.Diagnostics.AddError("Error deleting workspace", err.Error())
+	ids, diags := knownParents(ctx, r.client, req.Private, organizationParent(state.OrganizationID))
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	err := r.client.DeleteWorkspace(ctx, ids.Organization, state.ID.ValueString())
+	if err != nil && !client.IsNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete the workspace", err.Error())
 	}
 }
 
-func (r *WorkspaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// `terraform import tenzir_workspace.example <workspace-id>`
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+// ImportState takes "<organization>/<workspace>", each an ID or a slug, and
+// stores IDs.
+func (r *workspaceResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	parts, err := splitImportID(req.ID, "organization", "workspace")
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid import ID", err.Error())
+		return
+	}
+	ws, err := r.client.ReadWorkspace(ctx, parts[0], parts[1])
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot import the workspace", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("organization_id"), ws.OrgID)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), ws.ID)...)
 }

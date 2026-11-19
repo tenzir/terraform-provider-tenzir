@@ -3,23 +3,27 @@
 page_title: "tenzir_workspace Resource - tenzir"
 subcategory: ""
 description: |-
-  A workspace in the Tenzir Platform. Workspaces created by this resource are owned by the organization of the user authenticated by the provider, so that organization must exist first — reference it with depends_on when managing both in the same configuration. (Personal workspaces are not supported because the API does not allow deleting them.)
+  A workspace of an organization. It holds deployments, secrets and a git repository with their configuration.
+  Needs Organization.createWorkspace and Workspace.read, Workspace.update and Workspace.delete. The platform refuses to delete a workspace that still holds deployments.
 ---
 
 # tenzir_workspace (Resource)
 
-A workspace in the Tenzir Platform. Workspaces created by this resource are owned by the organization of the user authenticated by the provider, so that organization must exist first — reference it with `depends_on` when managing both in the same configuration. (Personal workspaces are not supported because the API does not allow deleting them.)
+A workspace of an organization. It holds deployments, secrets and a git repository with their configuration.
+
+Needs `Organization.createWorkspace` and `Workspace.read`, `Workspace.update` and `Workspace.delete`. The platform refuses to delete a workspace that still holds deployments.
 
 ## Example Usage
 
 ```terraform
-# Workspaces are owned by the organization of the authenticated user. When
-# the organization is managed in the same configuration, declare the
-# dependency explicitly.
-resource "tenzir_workspace" "example" {
-  name       = "Security Operations"
-  icon_url   = "https://example.com/icon.png"
-  depends_on = [tenzir_organization.example]
+data "tenzir_organization" "acme" {
+  slug = "acme"
+}
+
+resource "tenzir_workspace" "soc" {
+  organization_id = data.tenzir_organization.acme.id
+  slug            = "soc"
+  name            = "Security Operations"
 }
 ```
 
@@ -28,14 +32,25 @@ resource "tenzir_workspace" "example" {
 
 ### Required
 
-- `name` (String) Display name of the workspace.
+- `organization_id` (String) The ID or slug of the organization that owns the workspace.
+- `slug` (String) The workspace's name in URLs: lowercase letters, digits and single dashes.
 
 ### Optional
 
-- `icon_url` (String) URL of the workspace icon.
+- `icon_url` (String) The URL of the workspace icon.
+- `name` (String) The display name. Defaults to the slug.
 
 ### Read-Only
 
-- `id` (String) Unique identifier of the workspace.
-- `owner_id` (String) Identifier of the workspace owner.
-- `owner_namespace` (String) Namespace of the workspace owner (e.g. `organization`).
+- `id` (String) The workspace ID.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# <organization>/<workspace>, each an ID or a slug.
+terraform import tenzir_workspace.soc acme/soc
+```

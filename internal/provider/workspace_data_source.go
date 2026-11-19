@@ -2,93 +2,82 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
-var _ datasource.DataSource = &WorkspaceDataSource{}
+var _ datasource.DataSourceWithConfigure = &workspaceDataSource{}
 
 func NewWorkspaceDataSource() datasource.DataSource {
-	return &WorkspaceDataSource{}
+	return &workspaceDataSource{}
 }
 
-// WorkspaceDataSource looks up an existing workspace by id.
-type WorkspaceDataSource struct {
+type workspaceDataSource struct {
 	client *client.Client
 }
 
-type WorkspaceDataSourceModel struct {
-	ID             types.String `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	IconURL        types.String `tfsdk:"icon_url"`
-	OwnerNamespace types.String `tfsdk:"owner_namespace"`
-	OwnerID        types.String `tfsdk:"owner_id"`
-}
-
-func (d *WorkspaceDataSource) Metadata(ctx context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *workspaceDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_workspace"
 }
 
-func (d *WorkspaceDataSource) Schema(ctx context.Context, req datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+func (d *workspaceDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Look up an existing workspace in the Tenzir Platform.",
+		MarkdownDescription: "A workspace, looked up by ID or slug. Needs `Workspace.read`.",
 		Attributes: map[string]schema.Attribute{
+			"organization_id": schema.StringAttribute{
+				MarkdownDescription: "The ID or slug of the organization that owns the workspace.",
+				Required:            true,
+			},
 			"id": schema.StringAttribute{
-				Description: "Unique identifier of the workspace.",
-				Required:    true,
+				MarkdownDescription: "The workspace ID. Set this or `slug`.",
+				Optional:            true,
+				Computed:            true,
+				Validators: []validator.String{
+					stringvalidator.ExactlyOneOf(path.MatchRoot("id"), path.MatchRoot("slug")),
+				},
+			},
+			"slug": schema.StringAttribute{
+				MarkdownDescription: "The workspace's name in URLs. Set this or `id`.",
+				Optional:            true,
+				Computed:            true,
 			},
 			"name": schema.StringAttribute{
-				Description: "Display name of the workspace.",
-				Computed:    true,
+				MarkdownDescription: "The display name.",
+				Computed:            true,
 			},
 			"icon_url": schema.StringAttribute{
-				Description: "URL of the workspace icon.",
-				Computed:    true,
-			},
-			"owner_namespace": schema.StringAttribute{
-				Description: "Namespace of the workspace owner (e.g. `organization`).",
-				Computed:    true,
-			},
-			"owner_id": schema.StringAttribute{
-				Description: "Identifier of the workspace owner.",
-				Computed:    true,
+				MarkdownDescription: "The URL of the workspace icon.",
+				Computed:            true,
 			},
 		},
 	}
 }
 
-func (d *WorkspaceDataSource) Configure(ctx context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	d.client = resourceClient(req.ProviderData, resp.Diagnostics.AddError)
+func (d *workspaceDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-func (d *WorkspaceDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	var config WorkspaceDataSourceModel
+func (d *workspaceDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	var config workspaceModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	ws, err := d.client.GetWorkspace(ctx, config.ID.ValueString())
+	ref := config.ID.ValueString()
+	if ref == "" {
+		ref = config.Slug.ValueString()
+	}
+	ws, err := d.client.ReadWorkspace(ctx, config.OrganizationID.ValueString(), ref)
 	if err != nil {
-		resp.Diagnostics.AddError("Error reading workspace", err.Error())
+		resp.Diagnostics.AddError("Cannot read the workspace", err.Error())
 		return
 	}
-	if ws == nil {
-		resp.Diagnostics.AddError(
-			"Workspace not found",
-			fmt.Sprintf("No workspace with id %q exists.", config.ID.ValueString()),
-		)
-		return
-	}
-
-	config.Name = types.StringValue(ws.Name)
-	config.IconURL = types.StringValue(ws.IconURL)
-	config.OwnerNamespace = types.StringValue(ws.Owner.Namespace)
-	config.OwnerID = types.StringValue(ws.Owner.OwnerID)
+	config.set(ws)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &config)...)
 }

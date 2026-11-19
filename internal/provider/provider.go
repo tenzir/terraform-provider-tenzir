@@ -3,37 +3,35 @@ package provider
 import (
 	"context"
 	"os"
-	"path/filepath"
-	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
-	"github.com/hashicorp/terraform-plugin-framework/function"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
-// Ensure TenzirProvider satisfies the provider interfaces.
-var _ provider.Provider = &TenzirProvider{}
-var _ provider.ProviderWithFunctions = &TenzirProvider{}
+const defaultPlatformURL = "https://platform.tenzir.dev"
 
-// TenzirProvider defines the provider implementation.
+var _ provider.Provider = &TenzirProvider{}
+
+// TenzirProvider manages resources in the Tenzir Platform.
 type TenzirProvider struct {
-	// version is "dev" for local builds, or the release version for
-	// binaries distributed via the registry.
 	version string
 }
 
-// TenzirProviderModel maps the provider configuration block to Go values.
-type TenzirProviderModel struct {
-	Endpoint       types.String `tfsdk:"endpoint"`
-	IDToken        types.String `tfsdk:"id_token"`
-	ServiceToken   types.String `tfsdk:"service_token"`
-	OrganizationID types.String `tfsdk:"organization_id"`
-	Stage          types.String `tfsdk:"stage"`
+type providerModel struct {
+	URL    types.String `tfsdk:"url"`
+	APIKey types.String `tfsdk:"api_key"`
+	Token  types.String `tfsdk:"token"`
+	// TokenFile is read for every request, so a token can be renewed while
+	// a long apply runs.
+	TokenFile types.String `tfsdk:"token_file"`
 }
 
 func New(version string) func() provider.Provider {
@@ -42,56 +40,42 @@ func New(version string) func() provider.Provider {
 	}
 }
 
-func (p *TenzirProvider) Metadata(ctx context.Context, req provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (p *TenzirProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = "tenzir"
 	resp.Version = p.version
 }
 
-func (p *TenzirProvider) Schema(ctx context.Context, req provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (p *TenzirProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manage resources in the Tenzir Platform.",
+		MarkdownDescription: "Manage workspaces, access, secrets, ingest endpoints, deployments and their configuration in the Tenzir Platform.\n\n" +
+			"Version 1.0 targets the new Tenzir Platform and shares no resources with 0.x. " +
+			"There is no state migration: remove the old resources from your state, then import or recreate them with the new ones. " +
+			"To stay on the old platform, pin `version = \"~> 0.1\"`.",
 		Attributes: map[string]schema.Attribute{
-			"endpoint": schema.StringAttribute{
-				Description: "Base URL of the Tenzir Platform user API. " +
-					"Can also be set via the TENZIR_PLATFORM_ENDPOINT environment variable.",
+			"url": schema.StringAttribute{
+				MarkdownDescription: "The platform address, which serves `/.well-known/tenzir-platform`. " +
+					"Defaults to the `TENZIR_PLATFORM_URL` environment variable, or `" + defaultPlatformURL + "`.",
 				Optional: true,
 			},
-			"id_token": schema.StringAttribute{
-				Description: "OIDC ID token used to authenticate against the Tenzir Platform " +
-					"(user-identity credentials; required for managing organizations). " +
-					"The provider exchanges it for short-lived, workspace-scoped API keys as needed. " +
-					"Can also be set via the TENZIR_PLATFORM_ID_TOKEN environment variable. " +
-					"When neither this nor `service_token` is set, the provider falls back to the " +
-					"id_token cached by `tenzir-platform login` (see the `stage` attribute). " +
-					"Exactly one of `id_token` and `service_token` must be set.",
-				Optional:  true,
-				Sensitive: true,
+			"api_key": schema.StringAttribute{
+				MarkdownDescription: "A user API key (`tnzu_…`), sent as `x-tenzir-api-key`. " +
+					"Defaults to the `TENZIR_API_KEY` environment variable. Conflicts with `token`.",
+				Optional:   true,
+				Sensitive:  true,
+				Validators: []validator.String{stringvalidator.ConflictsWith(path.MatchRoot("token"), path.MatchRoot("token_file"))},
 			},
-			"service_token": schema.StringAttribute{
-				Description: "Org-scoped service token (`tzst_...`) used to authenticate against " +
-					"the Tenzir Platform. Manages workspaces and nodes within the token's " +
-					"organization; cannot create organizations. " +
-					"Can also be set via the TENZIR_PLATFORM_SERVICE_TOKEN environment variable. " +
-					"Exactly one of `id_token` and `service_token` must be set.",
-				Optional:  true,
-				Sensitive: true,
+			"token": schema.StringAttribute{
+				MarkdownDescription: "An OIDC bearer token that the platform accepts. " +
+					"Defaults to the `TENZIR_TOKEN` environment variable. Conflicts with `api_key`.",
+				Optional:   true,
+				Sensitive:  true,
+				Validators: []validator.String{stringvalidator.ConflictsWith(path.MatchRoot("token_file"))},
 			},
-			"organization_id": schema.StringAttribute{
-				Description: "When set together with `id_token`, the token is treated as a " +
-					"federated workload identity token (e.g. a CI-issued OIDC token) and " +
-					"exchanged against this organization's trusted-issuer configuration " +
-					"instead of the platform's login IdP. " +
-					"Can also be set via the TENZIR_PLATFORM_ORGANIZATION_ID environment variable. " +
-					"Conflicts with `service_token`.",
-				Optional: true,
-			},
-			"stage": schema.StringAttribute{
-				Description: "Selects which `tenzir-platform` CLI login cache to read when no " +
-					"`id_token` or `service_token` is set explicitly. The provider falls back to " +
-					"the id_token cached by `tenzir-platform login` at " +
-					"`${XDG_CACHE_HOME:-~/.cache}/tenzir-platform/<stage>/id_token`. " +
-					"Defaults to `prod`; can also be set via the " +
-					"TENZIR_PLATFORM_CLI_STAGE_IDENTIFIER environment variable.",
+			"token_file": schema.StringAttribute{
+				MarkdownDescription: "A file that holds an OIDC bearer token, read again for every request. " +
+					"Use it for tokens that expire during an apply, such as GitHub Actions' ID tokens, and replace " +
+					"the file's content before the token in it expires. " +
+					"Defaults to the `TENZIR_TOKEN_FILE` environment variable. Conflicts with `api_key` and `token`.",
 				Optional: true,
 			},
 		},
@@ -99,156 +83,105 @@ func (p *TenzirProvider) Schema(ctx context.Context, req provider.SchemaRequest,
 }
 
 func (p *TenzirProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
-	var config TenzirProviderModel
+	var config providerModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	// Configuration values take precedence over environment variables.
-	endpoint := os.Getenv("TENZIR_PLATFORM_ENDPOINT")
-	if !config.Endpoint.IsNull() {
-		endpoint = config.Endpoint.ValueString()
-	}
-	idToken := os.Getenv("TENZIR_PLATFORM_ID_TOKEN")
-	if !config.IDToken.IsNull() {
-		idToken = config.IDToken.ValueString()
-	}
-	serviceToken := os.Getenv("TENZIR_PLATFORM_SERVICE_TOKEN")
-	if !config.ServiceToken.IsNull() {
-		serviceToken = config.ServiceToken.ValueString()
-	}
-	organizationID := os.Getenv("TENZIR_PLATFORM_ORGANIZATION_ID")
-	if !config.OrganizationID.IsNull() {
-		organizationID = config.OrganizationID.ValueString()
-	}
-	stage := os.Getenv("TENZIR_PLATFORM_CLI_STAGE_IDENTIFIER")
-	if !config.Stage.IsNull() {
-		stage = config.Stage.ValueString()
-	}
-	if stage == "" {
-		stage = "prod"
-	}
-
-	// When no explicit credentials are configured, fall back to the id_token
-	// cached by `tenzir-platform login`, so a CLI login is enough to run the
-	// provider locally.
-	cachePath := cliTokenPath(stage)
-	if idToken == "" && serviceToken == "" {
-		if tok, err := os.ReadFile(cachePath); err == nil {
-			idToken = strings.TrimSpace(string(tok))
+	for name, value := range map[string]types.String{"url": config.URL, "api_key": config.APIKey, "token": config.Token, "token_file": config.TokenFile} {
+		if value.IsUnknown() {
+			resp.Diagnostics.AddAttributeError(path.Root(name), "Unknown provider configuration",
+				"The provider needs `"+name+"` before it can plan, so it cannot depend on a value that is only known after apply.")
 		}
-	}
-
-	if endpoint == "" {
-		resp.Diagnostics.AddError(
-			"Missing Tenzir Platform endpoint",
-			"Set the `endpoint` provider attribute or the TENZIR_PLATFORM_ENDPOINT environment variable.",
-		)
-	}
-	if idToken == "" && serviceToken == "" {
-		resp.Diagnostics.AddError(
-			"Missing Tenzir Platform credentials",
-			"Set either the `id_token` provider attribute (or TENZIR_PLATFORM_ID_TOKEN) for "+
-				"user-identity credentials, or the `service_token` provider attribute (or "+
-				"TENZIR_PLATFORM_SERVICE_TOKEN) for org-scoped credentials. As a fallback the "+
-				"provider reads the id_token cached by `tenzir-platform login` at "+cachePath+
-				", but no readable token was found there.",
-		)
-	}
-	if idToken != "" && serviceToken != "" {
-		resp.Diagnostics.AddError(
-			"Conflicting Tenzir Platform credentials",
-			"Both an ID token and a service token are configured (via attributes or environment "+
-				"variables); set exactly one.",
-		)
-	}
-	if organizationID != "" && serviceToken != "" {
-		resp.Diagnostics.AddError(
-			"Conflicting Tenzir Platform credentials",
-			"`organization_id` selects federated authentication for an `id_token` and cannot be "+
-				"combined with a service token.",
-		)
 	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	var c *client.Client
-	switch {
-	case serviceToken != "":
-		c = client.NewWithServiceToken(endpoint, serviceToken)
-	case organizationID != "":
-		c = client.NewFederated(endpoint, idToken, organizationID)
-	default:
-		c = client.New(endpoint, idToken)
+	url := setting(config.URL, "TENZIR_PLATFORM_URL")
+	if url == "" {
+		url = defaultPlatformURL
 	}
-	// Made available to resources and data sources via req.ProviderData.
+	apiKey := setting(config.APIKey, "TENZIR_API_KEY")
+	token := setting(config.Token, "TENZIR_TOKEN")
+	tokenFile := setting(config.TokenFile, "TENZIR_TOKEN_FILE")
+	// A credential set as an attribute overrides those in the environment.
+	switch {
+	case !config.APIKey.IsNull():
+		token, tokenFile = "", ""
+	case !config.Token.IsNull():
+		apiKey, tokenFile = "", ""
+	case !config.TokenFile.IsNull():
+		apiKey, token = "", ""
+	}
+	set := 0
+	for _, credential := range []string{apiKey, token, tokenFile} {
+		if credential != "" {
+			set++
+		}
+	}
+	if set == 0 {
+		resp.Diagnostics.AddError("Missing credential",
+			"Set `api_key` (or TENZIR_API_KEY) to a user API key, `token` (or TENZIR_TOKEN) to a bearer token, "+
+				"or `token_file` (or TENZIR_TOKEN_FILE) to a file that holds one.")
+		return
+	}
+	if set > 1 {
+		resp.Diagnostics.AddError("Conflicting credentials",
+			"More than one of an API key, a token and a token file are set, through attributes or the environment. The platform takes one credential; set one.")
+		return
+	}
+
+	c, err := client.New(ctx, client.Config{
+		URL:       url,
+		APIKey:    apiKey,
+		Token:     token,
+		TokenFile: tokenFile,
+		UserAgent: "terraform-provider-tenzir/" + p.version,
+	})
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot reach the Tenzir Platform", err.Error())
+		return
+	}
 	resp.DataSourceData = c
 	resp.ResourceData = c
 }
 
-// cliTokenPath returns the location where the `tenzir-platform` CLI caches the
-// id_token for the given stage, mirroring the CLI's own resolution
-// (${XDG_CACHE_HOME:-~/.cache}/tenzir-platform/<stage>/id_token).
-func cliTokenPath(stage string) string {
-	cacheHome := os.Getenv("XDG_CACHE_HOME")
-	if cacheHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			// Leave home empty; the resulting path simply won't exist and the
-			// read falls through to the missing-credentials diagnostic.
-			home = ""
-		}
-		cacheHome = filepath.Join(home, ".cache")
+// setting prefers the configured value over the environment variable.
+func setting(value types.String, env string) string {
+	if !value.IsNull() {
+		return value.ValueString()
 	}
-	return filepath.Join(cacheHome, "tenzir-platform", stage, "id_token")
+	return os.Getenv(env)
 }
 
-func (p *TenzirProvider) Resources(ctx context.Context) []func() resource.Resource {
+func (p *TenzirProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewOrganizationResource,
-		NewWorkspaceResource,
-		NewNodeResource,
-		NewFederatedCredentialResource,
-		NewServiceTokenResource,
 		NewOrganizationMemberResource,
-		NewLibrarySourceResource,
+		NewDemoOrganizationResource,
+		NewWorkspaceResource,
+		NewRoleResource,
+		NewRoleAssignmentResource,
+		NewAPIKeyResource,
 		NewSecretResource,
-		NewSecretStoreResource,
-		NewWorkspaceAuthRuleResource,
-		NewAlertResource,
+		NewIngestEndpointResource,
+		NewDeploymentResource,
+		NewHostedDeploymentResource,
+		NewDeploymentKeyResource,
+		NewConfigurationFileResource,
 	}
 }
 
-func (p *TenzirProvider) DataSources(ctx context.Context) []func() datasource.DataSource {
+func (p *TenzirProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		NewOrganizationDataSource,
+		NewCurrentUserDataSource,
 		NewWorkspaceDataSource,
-		NewNodesDataSource,
-		NewOrganizationMembersDataSource,
+		NewMembersDataSource,
+		NewRolesDataSource,
+		NewDeploymentTypesDataSource,
+		NewDeploymentImagesDataSource,
+		NewDeploymentDataSource,
 	}
-}
-
-func (p *TenzirProvider) Functions(ctx context.Context) []func() function.Function {
-	return nil
-}
-
-// resourceClient extracts the shared API client handed to resources by
-// Configure, adding the error diagnostic on type mismatch.
-func resourceClient(providerData any, diagAdd func(string, string)) *client.Client {
-	if providerData == nil {
-		// Terraform calls Configure on resources before the provider is
-		// configured during validation; ProviderData is nil then.
-		return nil
-	}
-	c, ok := providerData.(*client.Client)
-	if !ok {
-		diagAdd(
-			"Unexpected Provider Data Type",
-			"Expected *client.Client. This is a bug in the provider.",
-		)
-		return nil
-	}
-	return c
 }

@@ -1,0 +1,213 @@
+package client
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+// platform serves discovery at its root and routes /api to api.
+func platform(t *testing.T, api http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == WellKnownPath {
+			if r.Header.Get("x-tenzir-api-key") != "" {
+				t.Error("discovery sent the credential")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"apiUrl": srv.URL + "/api"})
+			return
+		}
+		api(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestErrorDecoding(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  int
+		body    string
+		want    Error
+		missing bool
+	}{
+		{"tag only", 404, `{"_tag":"NotFound"}`, Error{Status: 404, Tag: "NotFound"}, true},
+		{"tag and message", 409, `{"_tag":"NotEmpty","message":"the workspace holds deployments"}`,
+			Error{Status: 409, Tag: "NotEmpty", Message: "the workspace holds deployments"}, false},
+		{"not json", 502, "Bad Gateway\n", Error{Status: 502, Message: "Bad Gateway"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = c.ReadWorkspace(context.Background(), "org", "ws")
+			var apiErr *Error
+			if !errors.As(err, &apiErr) {
+				t.Fatalf("got %v, want *Error", err)
+			}
+			if apiErr.Status != tc.want.Status || apiErr.Tag != tc.want.Tag || apiErr.Message != tc.want.Message {
+				t.Errorf("got %+v, want %+v", *apiErr, tc.want)
+			}
+			if IsNotFound(err) != tc.missing {
+				t.Errorf("IsNotFound = %v", !tc.missing)
+			}
+		})
+	}
+}
+
+func TestRequestsCarryOneCredentialAndEscapedPaths(t *testing.T) {
+	var gotPath, gotKey, gotAuth string
+	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.EscapedPath()
+		gotKey = r.Header.Get("x-tenzir-api-key")
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{}`))
+	})
+	c, err := New(context.Background(), Config{URL: srv.URL + "/", Token: "tok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ReadWorkspace(context.Background(), "my org", "a/b"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/organizations/my%20org/workspaces/a%2Fb" {
+		t.Errorf("path %q", gotPath)
+	}
+	if gotKey != "" || gotAuth != "Bearer tok" {
+		t.Errorf("credential headers %q, %q", gotKey, gotAuth)
+	}
+	if _, err := New(context.Background(), Config{URL: srv.URL, Token: "a", APIKey: "b"}); err == nil {
+		t.Error("accepted both an API key and a token")
+	}
+}
+
+func TestTokenFileIsReadForEveryRequest(t *testing.T) {
+	var gotAuth string
+	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{}`))
+	})
+	file := filepath.Join(t.TempDir(), "token")
+	if _, err := New(context.Background(), Config{URL: srv.URL, TokenFile: file, Token: "tok"}); err == nil {
+		t.Error("accepted both a token and a token file")
+	}
+	c, err := New(context.Background(), Config{URL: srv.URL, TokenFile: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"first", "second"} {
+		if err := os.WriteFile(file, []byte(token+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ReadWorkspace(context.Background(), "org", "ws"); err != nil {
+			t.Fatal(err)
+		}
+		if gotAuth != "Bearer "+token {
+			t.Errorf("authorization %q, want the file's %q", gotAuth, token)
+		}
+	}
+}
+
+func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
+	saved := deleteRetries
+	deleteRetries = []time.Duration{0, 0}
+	t.Cleanup(func() { deleteRetries = saved })
+	for _, tc := range []struct {
+		name     string
+		failures int
+		want     int
+	}{
+		{"recovers", 2, 0},
+		{"gives up", 5, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls <= tc.failures {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+			c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = c.DeleteDeployment(context.Background(), DeploymentRef{Organization: "o", Workspace: "w", ID: "d"})
+			if tc.want == 0 && err != nil || tc.want != 0 && !HasStatus(err, tc.want) {
+				t.Fatalf("got %v after %d calls", err, calls)
+			}
+			if calls > len(deleteRetries)+1 {
+				t.Errorf("sent %d requests", calls)
+			}
+		})
+	}
+}
+
+func TestAdministratorRequests(t *testing.T) {
+	var got []string
+	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.URL.Path+" "+string(body))
+		if r.Method == "GET" {
+			_, _ = w.Write([]byte(`null`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	})
+	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := c.ProvisionOrganization(ctx, NewOrganization{Slug: "demo"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddMember(ctx, "demo", NewMember{UserID: "user-id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemoveMember(ctx, "demo", "member-id"); err != nil {
+		t.Fatal(err)
+	}
+	if setup, err := c.ReadDemoOrgSetup(ctx); err != nil || setup != nil {
+		t.Fatalf("got %v, %v for no demo organization", setup, err)
+	}
+	if _, err := c.SetDemoOrgSetup(ctx, DemoOrgSetup{OrganizationID: "org-id", RoleID: "role-id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RemoveDemoOrgSetup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		`POST /api/organizations/provision {"slug":"demo"}`,
+		// The platform requires the roles, even when there are none.
+		`POST /api/organizations/demo/members {"userId":"user-id","roleIds":[]}`,
+		`DELETE /api/organizations/demo/members/member-id `,
+		`GET /api/internal/onboarding/setup-demo-org `,
+		`PUT /api/internal/onboarding/setup-demo-org {"organizationId":"org-id","roleId":"role-id"}`,
+		`DELETE /api/internal/onboarding/setup-demo-org `,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d requests, want %d: %q", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("request %d: got %s, want %s", i, got[i], want[i])
+		}
+	}
+}

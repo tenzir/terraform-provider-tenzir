@@ -3,22 +3,37 @@
 page_title: "tenzir_organization Resource - tenzir"
 subcategory: ""
 description: |-
-  An organization in the Tenzir Platform. The user authenticated by the provider becomes the initial admin of the organization.
-  ~> Creating an organization requires user-identity credentials (id_token), since org-scoped credentials cannot create the organization they are scoped to. Configurations that run with org-scoped credentials should reference their organization via the tenzir_organization data source instead.
+  An organization.
+  Without plan, the caller becomes the first owner; this needs Root.createOrganization, and Terraform leaves the organization's plan to its owners.
+  With plan = "provisioned", a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with tenzir_organization_member. This needs Root.provisionOrganization, which only platform administrators hold.
+  Changing it needs Organization.update, and deleting it Organization.delete. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 ---
 
 # tenzir_organization (Resource)
 
-An organization in the Tenzir Platform. The user authenticated by the provider becomes the initial admin of the organization.
+An organization.
 
-~> Creating an organization requires user-identity credentials (`id_token`), since org-scoped credentials cannot create the organization they are scoped to. Configurations that run with org-scoped credentials should reference their organization via the `tenzir_organization` data source instead.
+Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and Terraform leaves the organization's plan to its owners.
+
+With `plan = "provisioned"`, a platform administrator sets the organization up, such as Tenzir's demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the organization can change. It has no members; add the account that manages it as its owner with `tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform administrators hold.
+
+Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the slug of an organization on Community.
 
 ## Example Usage
 
 ```terraform
-resource "tenzir_organization" "example" {
-  name     = "ACME Corp"
-  icon_url = "https://example.com/acme.png"
+# A platform administrator sets up an organization on the provisioned plan.
+# It starts without members: see tenzir_organization_member for making the
+# managing account its owner.
+resource "tenzir_organization" "demo" {
+  slug = "demo"
+  name = "Demo"
+  plan = "provisioned"
+}
+
+# Anyone else omits the plan, and becomes the first owner.
+resource "tenzir_organization" "acme" {
+  slug = "acme"
 }
 ```
 
@@ -27,13 +42,25 @@ resource "tenzir_organization" "example" {
 
 ### Required
 
-- `name` (String) Display name of the organization.
+- `slug` (String) The organization's name in URLs: lowercase letters, digits and single dashes, unique across the platform.
 
 ### Optional
 
-- `icon_url` (String) URL of the organization icon.
-- `require_mfa` (Boolean) Require multi-factor authentication for all members. Can only be enabled on platform deployments with an MFA integration.
+- `icon_url` (String) The URL of the organization icon.
+- `name` (String) The display name. Defaults to the slug.
+- `plan` (String) `provisioned` to set the organization up as a platform administrator; the only value. Unset, Terraform does not manage the plan. The platform cannot move an organization onto or off the provisioned plan, so changing this replaces the organization.
 
 ### Read-Only
 
-- `id` (String) Unique identifier of the organization.
+- `id` (String) The organization ID, which the platform picks.
+
+## Import
+
+Import is supported using the following syntax:
+
+The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
+
+```shell
+# An ID or a slug.
+terraform import tenzir_organization.demo demo
+```

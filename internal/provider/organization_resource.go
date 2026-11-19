@@ -3,172 +3,200 @@ package provider
 import (
 	"context"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 )
 
-var _ resource.Resource = &OrganizationResource{}
-var _ resource.ResourceWithImportState = &OrganizationResource{}
+var (
+	_ resource.ResourceWithConfigure   = &organizationResource{}
+	_ resource.ResourceWithImportState = &organizationResource{}
+)
+
+// provisionedPlan is the plan an administrator sets an organization up on.
+const provisionedPlan = "provisioned"
 
 func NewOrganizationResource() resource.Resource {
-	return &OrganizationResource{}
+	return &organizationResource{}
 }
 
-// OrganizationResource manages a Tenzir Platform organization.
-type OrganizationResource struct {
+type organizationResource struct {
 	client *client.Client
 }
 
-type OrganizationResourceModel struct {
-	ID         types.String `tfsdk:"id"`
-	Name       types.String `tfsdk:"name"`
-	IconURL    types.String `tfsdk:"icon_url"`
-	RequireMFA types.Bool   `tfsdk:"require_mfa"`
+type organizationResourceModel struct {
+	ID      types.String `tfsdk:"id"`
+	Slug    types.String `tfsdk:"slug"`
+	Name    types.String `tfsdk:"name"`
+	IconURL types.String `tfsdk:"icon_url"`
+	Plan    types.String `tfsdk:"plan"`
 }
 
-func (r *OrganizationResource) Metadata(ctx context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (r *organizationResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_organization"
 }
 
-func (r *OrganizationResource) Schema(ctx context.Context, req resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (r *organizationResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "An organization in the Tenzir Platform. The user authenticated by the " +
-			"provider becomes the initial admin of the organization.\n\n" +
-			"~> Creating an organization requires user-identity credentials (`id_token`), " +
-			"since org-scoped credentials cannot create the organization they are scoped to. " +
-			"Configurations that run with org-scoped credentials should reference their " +
-			"organization via the `tenzir_organization` data source instead.",
+		MarkdownDescription: "An organization.\n\n" +
+			"Without `plan`, the caller becomes the first owner; this needs `Root.createOrganization`, and " +
+			"Terraform leaves the organization's plan to its owners.\n\n" +
+			"With `plan = \"provisioned\"`, a platform administrator sets the organization up, such as Tenzir's " +
+			"demo organization: the platform creates it on the provisioned plan, which has everything Enterprise has and bills nothing, and which nobody in the " +
+			"organization can change. It has no members; add the account that manages it as its owner with " +
+			"`tenzir_organization_member`. This needs `Root.provisionOrganization`, which only platform " +
+			"administrators hold.\n\n" +
+			"Changing it needs `Organization.update`, and deleting it `Organization.delete`. The platform refuses " +
+			"to delete an organization that still holds workspaces or ingest endpoints, and refuses to move the " +
+			"slug of an organization on Community.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
-				Description: "Unique identifier of the organization.",
-				Computed:    true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				MarkdownDescription: "The organization ID, which the platform picks.",
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"slug": schema.StringAttribute{
+				MarkdownDescription: "The organization's name in URLs: lowercase letters, digits and single dashes, " +
+					"unique across the platform.",
+				Required: true,
 			},
 			"name": schema.StringAttribute{
-				Description: "Display name of the organization.",
-				Required:    true,
+				MarkdownDescription: "The display name. Defaults to the slug.",
+				Optional:            true,
+				Computed:            true,
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"icon_url": schema.StringAttribute{
-				Description: "URL of the organization icon.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(""),
+				MarkdownDescription: "The URL of the organization icon.",
+				Optional:            true,
 			},
-			"require_mfa": schema.BoolAttribute{
-				Description: "Require multi-factor authentication for all members. " +
-					"Can only be enabled on platform deployments with an MFA integration.",
+			"plan": schema.StringAttribute{
+				MarkdownDescription: "`provisioned` to set the organization up as a platform administrator; the " +
+					"only value. Unset, Terraform does not manage the plan. The platform cannot move an organization " +
+					"onto or off the provisioned plan, so changing this replaces the organization.",
 				Optional: true,
-				Computed: true,
-				Default:  booldefault.StaticBool(false),
+				Validators: []validator.String{
+					stringvalidator.OneOf(provisionedPlan),
+				},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 		},
 	}
 }
 
-func (r *OrganizationResource) Configure(ctx context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.client = resourceClient(req.ProviderData, resp.Diagnostics.AddError)
+func (r *organizationResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	r.client = configuredClient(req.ProviderData, &resp.Diagnostics)
 }
 
-func (r *OrganizationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan OrganizationResourceModel
+func (m *organizationResourceModel) set(org *client.Organization) {
+	m.ID = types.StringValue(org.ID)
+	m.Slug = optionalString(org.Slug)
+	m.Name = types.StringValue(org.Name)
+	m.IconURL = optionalString(org.IconURL)
+}
+
+func (r *organizationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	var plan organizationResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	id, err := r.client.CreateOrganization(ctx, plan.Name.ValueString(), plan.IconURL.ValueString())
+	body := client.NewOrganization{
+		Slug:    plan.Slug.ValueString(),
+		Name:    stringPointer(plan.Name),
+		IconURL: stringPointer(plan.IconURL),
+	}
+	var org *client.Organization
+	var err error
+	if plan.Plan.ValueString() == provisionedPlan {
+		org, err = r.client.ProvisionOrganization(ctx, body)
+	} else {
+		org, err = r.client.CreateOrganization(ctx, body)
+	}
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating organization", err.Error())
+		resp.Diagnostics.AddError("Cannot create the organization", err.Error())
 		return
 	}
-	plan.ID = types.StringValue(id)
-	// /org/create has no require_mfa parameter; enabling it is a follow-up
-	// update. Save state before that call so a failure doesn't orphan the
-	// already-created organization.
+	plan.set(org)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
-	if plan.RequireMFA.ValueBool() {
-		requireMFA := true
-		err := r.client.UpdateOrganization(ctx, id, client.OrganizationUpdate{RequireMFA: &requireMFA})
-		if err != nil {
-			resp.Diagnostics.AddError("Error enabling require_mfa on new organization", err.Error())
-			return
-		}
-	}
 }
 
-func (r *OrganizationResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-	var state OrganizationResourceModel
+func (r *organizationResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+	var state organizationResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	org, err := r.client.GetOrganization(ctx, state.ID.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Error reading organization", err.Error())
-		return
-	}
-	if org == nil {
-		// Deleted outside of Terraform; plan a re-create.
+	org, err := r.client.ReadOrganization(ctx, state.ID.ValueString())
+	if client.IsNotFound(err) {
 		resp.State.RemoveResource(ctx)
 		return
 	}
-
-	state.Name = types.StringValue(org.Name)
-	state.IconURL = types.StringValue(org.IconURL)
-	state.RequireMFA = types.BoolValue(org.RequireMFA)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot read the organization", err.Error())
+		return
+	}
+	state.set(org)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
-func (r *OrganizationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, state OrganizationResourceModel
+func (r *organizationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	var plan, state organizationResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	var update client.OrganizationUpdate
+	var patch client.OrganizationPatch
+	if !plan.Slug.Equal(state.Slug) {
+		patch.Slug = stringPointer(plan.Slug)
+	}
 	if !plan.Name.Equal(state.Name) {
-		update.Name = plan.Name.ValueStringPointer()
+		patch.Name = stringPointer(plan.Name)
 	}
 	if !plan.IconURL.Equal(state.IconURL) {
-		update.IconURL = plan.IconURL.ValueStringPointer()
+		patch.IconURL = stringPointer(plan.IconURL)
+		patch.ClearIconURL = plan.IconURL.IsNull()
 	}
-	if !plan.RequireMFA.Equal(state.RequireMFA) {
-		update.RequireMFA = plan.RequireMFA.ValueBoolPointer()
-	}
-	err := r.client.UpdateOrganization(ctx, plan.ID.ValueString(), update)
+	org, err := r.client.UpdateOrganization(ctx, state.ID.ValueString(), patch)
 	if err != nil {
-		resp.Diagnostics.AddError("Error updating organization", err.Error())
+		resp.Diagnostics.AddError("Cannot update the organization", err.Error())
 		return
 	}
+	plan.set(org)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
-func (r *OrganizationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
-	var state OrganizationResourceModel
+func (r *organizationResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	var state organizationResourceModel
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
-	if err := r.client.DeleteOrganization(ctx, state.ID.ValueString()); err != nil {
-		resp.Diagnostics.AddError("Error deleting organization", err.Error())
+	err := r.client.DeleteOrganization(ctx, state.ID.ValueString())
+	if err != nil && !client.IsNotFound(err) {
+		resp.Diagnostics.AddError("Cannot delete the organization", err.Error())
 	}
 }
 
-func (r *OrganizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	// `terraform import tenzir_organization.example <organization-id>`
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+// ImportState takes an ID or a slug, and stores the ID. Read leaves the plan
+// as configured, because a Sovereign installation reports every organization
+// as sovereign, so only an import learns it from the platform.
+func (r *organizationResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	org, err := r.client.ReadOrganization(ctx, req.ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Cannot import the organization", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), org.ID)...)
+	if org.Edition == provisionedPlan {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("plan"), provisionedPlan)...)
+	}
 }
