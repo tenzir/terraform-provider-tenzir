@@ -37,10 +37,9 @@ func (d *deploymentImagesDataSource) Metadata(_ context.Context, req datasource.
 
 func (d *deploymentImagesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "The deployment images that match the platform. The platform answers with an " +
-			"error when it cannot ask its registry.",
+		MarkdownDescription: "The deployment images that match the platform. The list is empty when the platform cannot ask its registry.",
 		Attributes: map[string]schema.Attribute{
-			"default": schema.StringAttribute{MarkdownDescription: "The image a deployment runs unless told otherwise.", Computed: true},
+			"default": schema.StringAttribute{MarkdownDescription: "The image a new deployment starts on unless told otherwise; null when no matching image is available.", Computed: true},
 			"images": schema.ListNestedAttribute{
 				MarkdownDescription: "The images since the platform's release, newest first.",
 				Computed:            true,
@@ -66,7 +65,7 @@ func (d *deploymentImagesDataSource) Read(ctx context.Context, _ datasource.Read
 		resp.Diagnostics.AddError("Cannot list the deployment images", err.Error())
 		return
 	}
-	state := deploymentImagesModel{Default: types.StringValue(images.Default), Images: []deploymentImageModel{}}
+	state := deploymentImagesModel{Default: optionalString(images.Default), Images: []deploymentImageModel{}}
 	for _, i := range images.Images {
 		state.Images = append(state.Images, deploymentImageModel{
 			Tag:       types.StringValue(i.Tag),

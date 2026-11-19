@@ -159,6 +159,33 @@ func TestDeleteDeploymentRetriesUnavailable(t *testing.T) {
 	}
 }
 
+func TestCreateOrganizationForUser(t *testing.T) {
+	var got string
+	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = r.Method + " " + r.URL.EscapedPath() + " " + string(body)
+		_, _ = w.Write([]byte(`{"id":"org-id","slug":"acme","name":"Acme","memberCount":1,"edition":"community"}`))
+	})
+	c, err := New(context.Background(), Config{URL: srv.URL, APIKey: "tnzu_x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, iconURL := "Acme", "https://example.com/icon.png"
+	org, err := c.CreateOrganization(context.Background(), "target/user", NewOrganization{
+		Slug: "acme", Name: &name, IconURL: &iconURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `POST /api/users/target%2Fuser/organizations {"slug":"acme","name":"Acme","iconUrl":"https://example.com/icon.png"}`
+	if got != want {
+		t.Errorf("request: got %s, want %s", got, want)
+	}
+	if org.ID != "org-id" || org.Edition != "community" || org.MemberCount != 1 {
+		t.Errorf("organization: %+v", org)
+	}
+}
+
 func TestAdministratorRequests(t *testing.T) {
 	var got []string
 	srv := platform(t, func(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +221,7 @@ func TestAdministratorRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		`POST /api/organizations/provision {"slug":"demo"}`,
+		`POST /api/organizations {"slug":"demo"}`,
 		// The platform requires the roles, even when there are none.
 		`POST /api/organizations/demo/members {"userId":"user-id","roleIds":[]}`,
 		`DELETE /api/organizations/demo/members/member-id `,

@@ -39,6 +39,19 @@ func TestPolicySemanticEquality(t *testing.T) {
 			equal: false,
 		},
 		{
+			name: "nested API-key owner selectors",
+			a: `[[{"target":{"_tag":"ApiKey","owner":{"_tag":"User"}},"relationships":[]},["ApiKey.read"]],
+			     [{"target":{"_tag":"ApiKey","owner":{"_tag":"User","userId":"u"},"apiKeyId":"k"},"relationships":[]},["ApiKey.read"]]]`,
+			b:     `[[{"target":{"_tag":"ApiKey","owner":{"_tag":"User"}},"relationships":[]},["ApiKey.read"]]]`,
+			equal: true,
+		},
+		{
+			name: "API-key owner kinds stay distinct",
+			a: `[[{"target":{"_tag":"ApiKey","owner":{"_tag":"User"}},"relationships":[]},["ApiKey.read"]],
+			     [{"target":{"_tag":"ApiKey","owner":{"_tag":"Organization","orgId":"o"}},"relationships":[]},["ApiKey.read"]]]`,
+			b: `[[{"target":{"_tag":"ApiKey","owner":{"_tag":"User"}},"relationships":[]},["ApiKey.read"]]]`,
+		},
+		{
 			name:  "empty",
 			a:     `[]`,
 			b:     ` [ ] `,

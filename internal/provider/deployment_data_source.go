@@ -73,8 +73,8 @@ func (d *deploymentDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 			"runtime": computed("What ran it when it last connected: `kubernetes`, `ecs`, `compose`, `docker`, " +
 				"`systemd` or `unmanaged`."),
 			"last_seen": computed("When it was last connected."),
-			"upgrade_image": computed("The image of the platform's version, when it runs an older one; null when " +
-				"it is current or the platform cannot tell."),
+			"upgrade_image": computed("The image the platform starts deployments on, when this deployment runs an older build; " +
+				"null when it runs that build or a later one, or the platform cannot tell."),
 			"created_at": computed("When it was created."),
 		},
 	}
@@ -101,8 +101,8 @@ func (d *deploymentDataSource) Read(ctx context.Context, req datasource.ReadRequ
 		return
 	}
 	upgrade := types.StringNull()
-	if details.Upgrade != nil && details.Upgrade.Tag == "Available" {
-		upgrade = types.StringValue(details.Upgrade.Image)
+	if details.Update != nil && details.Update.Tag == "Available" {
+		upgrade = types.StringValue(details.Update.Image)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &deploymentDataModel{
 		ID:             types.StringValue(details.Deployment.ID),

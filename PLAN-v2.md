@@ -79,7 +79,7 @@ compares parents by ID:
 | `tenzir_workspace` | `…/workspaces`, `…/update`, `DELETE` | Delete fails while deployments exist; surface the API's error |
 | `tenzir_role` | `…/roles`, `…/update`, `DELETE` | `policy` is a JSON string with semantic equality, because the server normalizes policies |
 | `tenzir_role_assignment` | `POST …/members/:member/roles`, `DELETE …/members/:member/roles/:role` | Create and delete only; both are idempotent |
-| `tenzir_api_key` | `POST /users/:user/api-keys`, `revoke`, `set-policy`, `rename` | `key` is only known at create time; delete revokes |
+| `tenzir_api_key` | `POST /users/:user/api-keys`, `revoke`, `set-policy`, `rename` | `name` is required and must not be blank; `key` is only known at create time; delete revokes |
 | `tenzir_secret` | org, workspace and deployment scopes | One resource with `organization_id`, `workspace_id` and `deployment_id`; the most specific one sets the scope. `value` is write-only (Terraform 1.11+), so `value_version` triggers a rewrite after it changes; a `version` that moved outside Terraform plans a rewrite too |
 | `tenzir_ingest_endpoint` | `…/ingest-endpoints` | `name` forces replacement; `token` is sensitive and readable |
 
@@ -97,8 +97,8 @@ organization; see open item 6.
 
 | Resource | API | Notes |
 |---|---|---|
-| `tenzir_deployment` | `POST …/deployments`, `update`, `tracker`, `DELETE` | Self-hosted. `name` renames in place; `branch` and `auto_deploy` update through `POST tracker/update`. Read takes `GET …/details` |
-| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `update`, `tracker/update`, `change-type`, `DELETE` | `size` updates in place (restart); `region` forces replacement. The platform does not report `image`, so the state keeps the configured one; changing it forces replacement, except after an import, where it is null. Create waits until `reachable`, with a `create` timeout |
+| `tenzir_deployment` | `POST …/deployments`, `rename`, `tracker/update`, `DELETE` | Self-hosted. `name` renames in place; `branch` and `auto_deploy` update through `POST tracker/update`. Read takes `GET …/details` |
+| `tenzir_hosted_deployment` | `POST …/hosted-deployments`, `rename`, `tracker/update`, `change-type`, `DELETE` | `size` updates in place (restart); `region` forces replacement. The platform does not report `image`, so the state keeps the configured one; changing it forces replacement, except after an import, where it is null. Create waits until `reachable`, with a `create` timeout |
 | `tenzir_deployment_key` | `POST …/rotate-key` | Mints a key on create and when `triggers` change; `key` is sensitive. Destroy only drops it from the state. A separate resource, because minting locks out whatever runs with the previous key on its next reconnect |
 
 The two kinds stay separate resources: their create calls and mutable fields
@@ -150,16 +150,22 @@ refuses a colon in a branch name, so the first colon ends the branch.
 1. Done: `GET …/deployments/:id/details` returns the tracker, hosting
    kind, size and region, so `Read` can detect drift without a list call.
 2. Done: a single-secret `GET` for each scope, instead of filtering the list.
-3. Done: `POST …/deployments/:id/update` renames a deployment.
+3. Done: `POST …/deployments/:id/rename` renames a deployment under
+   `Deployment.rename`. `/update` instead updates a hosted deployment's build
+   and requires an offered `version`; Terraform does not call it.
 4. Open: creating a deployment accepts a branch without commits, which
    `POST …/tracker/update` refuses, so a typo surfaces only on the next change.
 5. Open: the platform does not report a hosted deployment's image.
-6. Done for administrators: `POST /organizations/provision` creates an
-   organization without members, on the provisioned plan, which bills
-   nothing and which nobody in the organization can change. Only `sys.admin`
-   holds it. `tenzir_organization` with `plan = "provisioned"` uses it;
-   without `plan`, the provider creates the organization as anyone would. Changing `plan` replaces the
-   organization, because the platform moves no organization onto or off the
+6. Done: `POST /api/organizations` creates an organization without members,
+   on the provisioned plan, which bills nothing and which nobody in the
+   organization can change. It needs `Root.createOrganization`, which only
+   `sys.admin` holds. `tenzir_organization` with `plan = "provisioned"` uses it.
+   Without `plan`, the provider resolves its authenticated user through
+   `GET /api/account`, then calls `POST /api/users/:userId/organizations`
+   under `User.createOrganization` on that user to create a Community
+   organization with that user as its sole owner. Both requests carry only
+   organization metadata. Changing `plan` replaces the organization,
+   because the platform moves no organization onto or off the
    provisioned plan. `POST …/members` adds an existing user with roles,
    without an invitation, under `Organization.addMember`, which only
    `sys.admin` holds: `tenzir_organization_member` uses it to make the
@@ -178,7 +184,10 @@ refuses a colon in a branch name, so the first colon ends the branch.
 
 ## Tests
 
-- Unit tests cover the client's error decoding and policy equality.
+- Unit tests cover the client's error decoding, request contracts, resource
+  behavior and policy equality. `TENZIR_OPENAPI_FILE` points the contract test
+  at a locally generated platform OpenAPI document to check all registered
+  method/path pairs offline; see the README.
 - Acceptance tests (`TF_ACC=1`) run against a local dev stack from
   `tenzir/mono`. One test per resource does create, import, update and
   delete. They don't restate the schema.

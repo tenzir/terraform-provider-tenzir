@@ -7,8 +7,8 @@ import (
 
 var (
 	opReadOrganization      = op("GET", "/organizations/{org}")
-	opCreateOrganization    = op("POST", "/organizations")
-	opProvisionOrganization = op("POST", "/organizations/provision")
+	opCreateOrganization    = op("POST", "/users/{userId}/organizations")
+	opProvisionOrganization = op("POST", "/organizations")
 	opUpdateOrganization    = op("POST", "/organizations/{org}/update")
 	opDeleteOrganization    = op("DELETE", "/organizations/{org}")
 	opListRoles             = op("GET", "/organizations/{org}/roles")
@@ -24,7 +24,6 @@ type Organization struct {
 	Slug        *string `json:"slug,omitempty"`
 	Name        string  `json:"name"`
 	IconURL     *string `json:"iconUrl,omitempty"`
-	CreatedBy   *string `json:"createdBy,omitempty"`
 	CreatedAt   string  `json:"createdAt"`
 	MemberCount int64   `json:"memberCount"`
 	Edition     string  `json:"edition"`
@@ -90,10 +89,10 @@ func (c *Client) ReadOrganization(ctx context.Context, org string) (*Organizatio
 	return &out, nil
 }
 
-// CreateOrganization creates an organization with the caller as its owner.
-func (c *Client) CreateOrganization(ctx context.Context, org NewOrganization) (*Organization, error) {
+// CreateOrganization creates a Community organization with the given user as its sole owner.
+func (c *Client) CreateOrganization(ctx context.Context, userID string, org NewOrganization) (*Organization, error) {
 	var out Organization
-	if err := c.call(ctx, opCreateOrganization, nil, nil, org, &out); err != nil {
+	if err := c.call(ctx, opCreateOrganization, []string{userID}, nil, org, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

@@ -35,11 +35,11 @@ output "ci_api_key" {
 
 ### Required
 
+- `name` (String) The display name; must not be blank.
 - `policy` (String) What the key may do, as JSON: an array of `[constraints, actions]` pairs, such as `[[{"target":{"_tag":"Workspace"},"relationships":[]},["Workspace.read"]]]`. The platform normalizes policies, merging grants with equal constraints and dropping actions a broader grant covers; a policy that normalizes alike shows no difference. Use `jsonencode` to write one. An empty array `[]` allows only account introspection.
 
 ### Optional
 
-- `name` (String) The display name. Defaults to none.
 - `user_id` (String) The ID of the user who owns the key. Defaults to the user the provider authenticates as.
 
 ### Read-Only

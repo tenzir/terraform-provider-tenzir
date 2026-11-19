@@ -1,13 +1,35 @@
 package provider
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/tenzir/terraform-provider-tenzir/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
-// The dev stack cannot ask a registry, so tenzir_deployment_images is left
-// to the hand check against a real platform.
+func testPlatformClient(t *testing.T, api http.HandlerFunc) *client.Client {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == client.WellKnownPath {
+			_ = json.NewEncoder(w).Encode(map[string]string{"apiUrl": server.URL + "/api"})
+			return
+		}
+		api(w, r)
+	}))
+	t.Cleanup(server.Close)
+	c, err := client.New(context.Background(), client.Config{URL: server.URL, APIKey: "tnzu_fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func TestAccOrganizationLookups(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },

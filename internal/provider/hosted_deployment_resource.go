@@ -81,7 +81,7 @@ func (r *hostedDeploymentResource) Schema(ctx context.Context, _ resource.Schema
 			"needs no install. Creating it waits until the deployment connects, for at most the `create` " +
 			"timeout (15 minutes by default). Destroying it stops and removes it.\n\n" +
 			"Needs `Workspace.createHostedDeployment` and `Deployment.read`, `Deployment.readTracker`, " +
-			"`Deployment.update`, `Deployment.changeTracker`, `Deployment.changeType` and `Deployment.delete`; " +
+			"`Deployment.rename`, `Deployment.changeTracker`, `Deployment.changeType` and `Deployment.delete`; " +
 			"parents given by slug also need `Workspace.read`. " +
 			"The platform hosts deployments only on Enterprise; `tenzir_deployment_types` says whether it does.",
 		Attributes: attributes,

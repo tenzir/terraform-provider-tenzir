@@ -3,13 +3,15 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/tenzir/terraform-provider-tenzir/internal/client"
@@ -64,10 +66,11 @@ func (r *apiKeyResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"name": schema.StringAttribute{
-				MarkdownDescription: "The display name. Defaults to none.",
-				Optional:            true,
-				Computed:            true,
-				Default:             stringdefault.StaticString(""),
+				MarkdownDescription: "The display name; must not be blank.",
+				Required:            true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(regexp.MustCompile(`[^\s\v\p{Z}\x{FEFF}]`), "must contain a non-whitespace character"),
+				},
 			},
 			"policy": schema.StringAttribute{
 				MarkdownDescription: policyDescription("What the key may do,") + " An empty array `[]` allows only account introspection.",

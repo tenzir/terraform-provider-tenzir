@@ -14,7 +14,7 @@ var (
 	opCreateDeployment        = op("POST", "/organizations/{org}/workspaces/{workspace}/deployments")
 	opCreateHostedDeployment  = op("POST", "/organizations/{org}/workspaces/{workspace}/hosted-deployments")
 	opReadDeploymentDetails   = op("GET", deploymentPath+"/details")
-	opUpdateDeployment        = op("POST", deploymentPath+"/update")
+	opRenameDeployment        = op("POST", deploymentPath+"/rename")
 	opChangeDeploymentTracker = op("POST", deploymentPath+"/tracker/update")
 	opChangeDeploymentType    = op("POST", deploymentPath+"/change-type")
 	opRotateDeploymentKey     = op("POST", deploymentPath+"/rotate-key")
@@ -59,14 +59,14 @@ type DeploymentDetails struct {
 	Deployment Deployment `json:"deployment"`
 	Reachable  bool       `json:"reachable"`
 	// Hosting is "tenzir" or "customer".
-	Hosting   string             `json:"hosting"`
-	Size      *string            `json:"size,omitempty"`
-	Region    *string            `json:"region,omitempty"`
-	Source    *string            `json:"source,omitempty"`
-	Runtime   *string            `json:"runtime,omitempty"`
-	Upgrade   *DeploymentUpgrade `json:"upgrade,omitempty"`
-	CreatedAt string             `json:"createdAt"`
-	Tracker   Tracker            `json:"tracker"`
+	Hosting   string            `json:"hosting"`
+	Size      *string           `json:"size,omitempty"`
+	Region    *string           `json:"region,omitempty"`
+	Source    *string           `json:"source,omitempty"`
+	Runtime   *string           `json:"runtime,omitempty"`
+	Update    *DeploymentUpdate `json:"update,omitempty"`
+	CreatedAt string            `json:"createdAt"`
+	Tracker   Tracker           `json:"tracker"`
 }
 
 // ConfigurationStatus is the branch a deployment follows and its newest
@@ -76,11 +76,13 @@ type ConfigurationStatus struct {
 	Latest  *string `json:"latest"`
 }
 
-// DeploymentUpgrade says whether a deployment runs the platform's version:
-// Tag is "Current" or "Available", which carries the image to upgrade to.
-type DeploymentUpgrade struct {
-	Tag   string `json:"_tag"`
-	Image string `json:"image,omitempty"`
+// DeploymentUpdate says whether a deployment runs an older build than the
+// image the platform starts deployments on. Tag is "Current" or "Available",
+// which carries that image and its engine version.
+type DeploymentUpdate struct {
+	Tag     string `json:"_tag"`
+	Image   string `json:"image,omitempty"`
+	Version string `json:"version,omitempty"`
 }
 
 // NewDeployment is what creating a self-hosted deployment takes. Without a
@@ -100,8 +102,8 @@ type NewHostedDeployment struct {
 	Region *string `json:"region,omitempty"`
 }
 
-// DeploymentPatch changes the fields it sets.
-type DeploymentPatch struct {
+// DeploymentRename changes the display name when set.
+type DeploymentRename struct {
 	Name *string `json:"name,omitempty"`
 }
 
@@ -124,7 +126,7 @@ type DeploymentType struct {
 
 // DeploymentImages lists the images that match the platform.
 type DeploymentImages struct {
-	Default string            `json:"default"`
+	Default *string           `json:"default,omitempty"`
 	Images  []DeploymentImage `json:"images"`
 }
 
@@ -183,10 +185,10 @@ func (c *Client) ReadDeploymentDetails(ctx context.Context, d DeploymentRef) (*D
 	return &out, nil
 }
 
-// UpdateDeployment renames a deployment.
-func (c *Client) UpdateDeployment(ctx context.Context, d DeploymentRef, patch DeploymentPatch) (*Deployment, error) {
+// RenameDeployment changes a deployment's display name.
+func (c *Client) RenameDeployment(ctx context.Context, d DeploymentRef, rename DeploymentRename) (*Deployment, error) {
 	var out Deployment
-	if err := c.call(ctx, opUpdateDeployment, d.args(), nil, patch, &out); err != nil {
+	if err := c.call(ctx, opRenameDeployment, d.args(), nil, rename, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

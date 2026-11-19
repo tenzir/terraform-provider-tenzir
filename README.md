@@ -52,10 +52,14 @@ An API key acts as its user, limited further by its own policy. The user
 needs every permission that the managed resources need; each resource's
 documentation lists them.
 
+Without `plan`, `tenzir_organization` creates a Community organization with
+the provider's authenticated user as its sole owner. It resolves that user
+through `GET /account` and needs `User.createOrganization` on that user.
+
 A platform administrator's key may set organizations up for others: create
 one on the provisioned plan, which bills nothing, and make its own user the
 owner with `tenzir_organization_member` and `tenzir_current_user`. The key's
-policy must name those permissions too, `Root.provisionOrganization` and
+policy must name those permissions too, `Root.createOrganization` and
 `Organization.addMember`.
 
 ### Resources
@@ -134,7 +138,15 @@ make testacc
 ```
 
 With `TF_ACC` set, `TestContract` also checks every API operation the client
-calls against the platform's `openapi.json`.
+calls against the platform's `openapi.json`. To check a locally generated
+OpenAPI document without a running platform:
+
+```sh
+TENZIR_OPENAPI_FILE=/path/to/openapi.json go test ./internal/client -run TestContract -v
+```
+
+This checks method/path availability; request and behavior tests cover the
+semantics those checks cannot detect.
 
 ### Documentation
 

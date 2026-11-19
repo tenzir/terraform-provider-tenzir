@@ -102,7 +102,7 @@ func (r *deploymentResource) Schema(_ context.Context, _ resource.SchemaRequest,
 			"deployment an empty configuration, so it stops its pipelines. For a deployment that Tenzir runs, " +
 			"use `tenzir_hosted_deployment`; for its connection status, the `tenzir_deployment` data source.\n\n" +
 			"Needs `Workspace.createDeployment` and `Deployment.read`, `Deployment.readTracker`, " +
-			"`Deployment.update`, `Deployment.changeTracker` and `Deployment.delete`; parents given by slug " +
+			"`Deployment.rename`, `Deployment.changeTracker` and `Deployment.delete`; parents given by slug " +
 			"also need `Workspace.read`.",
 		Attributes: deploymentAttributes(),
 	}
@@ -154,7 +154,7 @@ func (m *deploymentModel) set(d *client.DeploymentDetails) {
 // that a failed step leaves the state at what the platform has.
 func (m *deploymentModel) update(ctx context.Context, c *client.Client, ref client.DeploymentRef, state *deploymentModel) error {
 	if !m.Name.Equal(state.Name) {
-		if _, err := c.UpdateDeployment(ctx, ref, client.DeploymentPatch{Name: stringPointer(m.Name)}); err != nil {
+		if _, err := c.RenameDeployment(ctx, ref, client.DeploymentRename{Name: stringPointer(m.Name)}); err != nil {
 			return fmt.Errorf("renaming: %w", err)
 		}
 		state.Name = m.Name

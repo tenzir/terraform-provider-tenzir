@@ -46,5 +46,5 @@ output "edge_connected" {
 - `runtime` (String) What ran it when it last connected: `kubernetes`, `ecs`, `compose`, `docker`, `systemd` or `unmanaged`.
 - `size` (String) The size it runs as; null unless Tenzir runs it.
 - `source` (String) The source tag of the build it ran when it last connected, such as `src-<hash>`.
-- `upgrade_image` (String) The image of the platform's version, when it runs an older one; null when it is current or the platform cannot tell.
+- `upgrade_image` (String) The image the platform starts deployments on, when this deployment runs an older build; null when it runs that build or a later one, or the platform cannot tell.
 - `version` (String) The version it reported when it last connected.

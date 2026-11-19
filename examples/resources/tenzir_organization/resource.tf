@@ -7,7 +7,8 @@ resource "tenzir_organization" "demo" {
   plan = "provisioned"
 }
 
-# Anyone else omits the plan, and becomes the first owner.
+# Omit the plan to create a Community organization with the authenticated
+# user as its sole owner (User.createOrganization).
 resource "tenzir_organization" "acme" {
   slug = "acme"
 }
